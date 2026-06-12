@@ -9,8 +9,18 @@ output "api_base_url" {
 }
 
 output "table_name" {
-  description = "DynamoDB table name"
+  description = "DynamoDB table name (legacy comics demo)"
   value       = aws_dynamodb_table.comics.name
+}
+
+output "market_record_table_name" {
+  description = "MarketRecord table name"
+  value       = aws_dynamodb_table.market_record.name
+}
+
+output "app_table_name" {
+  description = "Single table for User / Collection / Price"
+  value       = aws_dynamodb_table.app.name
 }
 
 output "cognito_user_pool_id" {
