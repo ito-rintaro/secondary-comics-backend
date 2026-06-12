@@ -1,7 +1,8 @@
 # Terraform local state & working files
 .terraform/
-.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 build/
 *.tfvars
+
+# .terraform.lock.hcl は意図的にコミットする（全環境でプロバイダ版を固定するため）
