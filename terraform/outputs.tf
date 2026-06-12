@@ -7,3 +7,13 @@ output "table_name" {
   description = "DynamoDB table name"
   value       = aws_dynamodb_table.comics.name
 }
+
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID"
+  value       = aws_cognito_user_pool.main.id
+}
+
+output "cognito_client_id" {
+  description = "Cognito App Client ID (USER_PASSWORD_AUTH に使う)"
+  value       = aws_cognito_user_pool_client.main.id
+}

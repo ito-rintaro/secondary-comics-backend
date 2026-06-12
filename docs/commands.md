@@ -88,7 +88,51 @@ Invoke-RestMethod -Method Delete "$base/comics/<id>"
 
 ---
 
-## AWS 認証
+## Cognito 認証（API を使うためのトークン取得）
+
+API は Cognito 認証が必須。`Authorization: Bearer <IDトークン>` を付けないと 401 になる。
+
+現在の値（`terraform output` で確認できる）:
+
+```
+User Pool ID : ap-northeast-1_yYodzAxD3
+Client ID    : 6ae9sch4pmsjk1duoqggchtra
+```
+
+### テストユーザーを作る（初回のみ）
+
+```powershell
+$pool = "<User Pool ID>"
+aws cognito-idp admin-create-user --user-pool-id $pool --username testuser --message-action SUPPRESS
+aws cognito-idp admin-set-user-password --user-pool-id $pool --username testuser --password "TestPass123!" --permanent
+```
+
+> パスワードは「8文字以上・大小英字・数字・記号」が必須。
+
+### サインインしてトークンを取得し、API を呼ぶ
+
+```powershell
+$client = "<Client ID>"
+$base   = "<API_URL>"
+
+# IDトークンを取得
+$auth  = aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH --client-id $client `
+  --auth-parameters USERNAME=testuser,PASSWORD=TestPass123! | ConvertFrom-Json
+$token = $auth.AuthenticationResult.IdToken
+
+# トークン付きで呼ぶ
+Invoke-RestMethod "$base/comics" -Headers @{ Authorization = "Bearer $token" }
+
+# 作成の例
+Invoke-RestMethod -Method Post "$base/comics" -Headers @{ Authorization = "Bearer $token" } `
+  -ContentType "application/json" -Body '{"title":"テスト","author":"作者"}'
+```
+
+> トークンには有効期限（デフォルト1時間）がある。切れたら再度 `initiate-auth` で取り直す。
+
+---
+
+## AWS 認証（AWS CLI 自体の設定）
 
 | 目的 | コマンド |
 |------|----------|
