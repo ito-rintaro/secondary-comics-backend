@@ -66,10 +66,87 @@ curl.exe "<API_URL>/health"
 # => {"status":"ok"}
 ```
 
-### サンプルデータ投入
+### サンプルデータ投入（comics テーブル / 旧デモ）
+
+comics テーブルへ直接投入（API/認証を介さない）:
 
 ```powershell
-node C:\Users\itori\Documents\secondary-comics-backend\scripts\seed.mjs <API_URL>
+.\scripts\seed-comics.ps1
+```
+
+### 設計テーブルへのテストデータ投入（MarketRecord + 単一テーブル app）
+
+テーブル構成:
+
+| テーブル | 内容 | キー |
+|---|---|---|
+| `market-record` | 相場マスタ（独立。GSI あり） | PK=`marketRecordId` |
+| `app`（単一テーブル） | User / Collection / Price をまとめて管理 | PK / SK |
+
+`app` のキー設計（型プレフィックスで同居）:
+
+| 種類 | PK | SK |
+|---|---|---|
+| User | `USER#<userId>` | `PROFILE` |
+| Collection | `USER#<userId>` | `ITEM#<itemId>` |
+| Price | `PRICE#<priceId>` | `<YYYY-MM>` |
+
+各アイテムは **`PK` / `SK` ＋ `data`（ネスト Map）** の形。
+`PK`/`SK` 以外の中身はすべて `data` の中に入れる（SDK が JS オブジェクト ⇄ Map を自動変換）。
+
+```
+{ "PK": "...", "SK": "...", "data": { entityType, ...payload } }
+```
+
+> `data` 内のフィールドはキー/GSI に使えない（このテーブルは PK/SK アクセスのみ前提）。
+> 検索軸を増やしたくなったら、その値だけ `data` の外（トップレベル属性）に出して GSI を張る。
+
+Node の seed ツールで投入する（プレーンな JS オブジェクトを自動マーシャル）。
+選択中 workspace のテーブルに入る。
+
+```powershell
+cd scripts\seed
+npm install        # 初回のみ
+node seed.mjs
+cd ..\..
+```
+
+- MarketRecord は GSI `byNew`（新着順）/ `byPrice`（価格順）でソート取得できる
+- Price は各 MarketRecord に対し12ヶ月分を生成
+- Collection の所有者 ID は test ユーザーの Cognito `sub`。別ユーザーにするには
+  `$env:SEED_USER_ID="<sub>"` を設定して実行
+
+#### 単一テーブル app のクエリ例
+
+```powershell
+$app = (terraform -chdir=terraform output -raw app_table_name)
+$pk  = "USER#<sub>"
+# プロフィール + 所有品をまとめて取得
+aws dynamodb query --table-name $app --key-condition-expression "PK = :pk" `
+  --expression-attribute-values "{\":pk\":{\"S\":\"$pk\"}}"
+# 所有品のみ
+aws dynamodb query --table-name $app `
+  --key-condition-expression "PK = :pk AND begins_with(SK, :i)" `
+  --expression-attribute-values "{\":pk\":{\"S\":\"$pk\"},\":i\":{\"S\":\"ITEM#\"}}"
+# 価格推移
+aws dynamodb query --table-name $app --key-condition-expression "PK = :pk" `
+  --expression-attribute-values '{\":pk\":{\"S\":\"PRICE#pr-001\"}}'
+```
+
+> テーブル名は `terraform output` から自動取得するため、対象 workspace を選んでから実行する。
+
+#### GSI ソートの確認例
+
+```powershell
+$mr = (terraform -chdir=terraform output -raw market_record_table_name)
+# 新着順
+aws dynamodb query --table-name $mr --index-name byNew `
+  --key-condition-expression "gsiPk = :v" `
+  --expression-attribute-values '{\":v\":{\"S\":\"RECORD\"}}' --no-scan-index-forward
+# 価格 高い順
+aws dynamodb query --table-name $mr --index-name byPrice `
+  --key-condition-expression "gsiPk = :v" `
+  --expression-attribute-values '{\":v\":{\"S\":\"RECORD\"}}' --no-scan-index-forward
 ```
 
 ### CRUD（PowerShell の Invoke-RestMethod）
