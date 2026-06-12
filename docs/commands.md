@@ -54,6 +54,15 @@ terraform destroy -auto-approve   # 即削除
 https://5g71hxivvc.execute-api.ap-northeast-1.amazonaws.com
 ```
 
+### ヘルスチェック（認証不要）
+
+トークン無しで叩ける。API が生きているかの確認に使う。
+
+```powershell
+curl.exe "<API_URL>/health"
+# => {"status":"ok"}
+```
+
 ### サンプルデータ投入
 
 ```powershell

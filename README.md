@@ -17,6 +17,7 @@ DynamoDB + Lambda + API Gateway による、コミック情報の CRUD API。
 
 | パス | メソッド | 動作 |
 |------|----------|------|
+| `/health` | GET | ヘルスチェック（**認証不要**） |
 | `/comics` | GET | 一覧取得（Scan） |
 | `/comics` | POST | 作成（id 未指定なら UUID 自動採番） |
 | `/comics/{id}` | GET | 1件取得 |
