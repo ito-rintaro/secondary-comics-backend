@@ -9,3 +9,9 @@ variable "project_name" {
   type        = string
   default     = "secondary-comics"
 }
+
+variable "allowed_origins" {
+  description = "CORS で許可するフロントのオリジン。本番ドメインはここに追加する"
+  type        = list(string)
+  default     = ["http://localhost:5173"]
+}
