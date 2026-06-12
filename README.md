@@ -89,6 +89,26 @@ table_name   = "secondary-comics-comics-dev"
 > `terraform workspace select -or-create dev` → `terraform apply`。
 > workspace が `dev` / `prod` 以外だと apply 時にガードで止まる。
 
+## state の保存場所（リモートバックエンド）
+
+Terraform の state は **S3 バケットで共有**している（このPCローカルではない）。
+これにより、別のPC・チームメンバーからでも同じ状態を見てデプロイできる。
+
+- バケット: `secondary-comics-tfstate-060756462498`
+- ロック: S3 ネイティブロック（`use_lockfile = true`。DynamoDB 不要）
+- workspace ごとに `env:/<env>/...` のパスで自動分離
+- 設定箇所: [terraform/main.tf](terraform/main.tf) の `backend "s3"`
+
+## 別のPC・チームから使う
+
+1. リポジトリを `git clone`
+2. AWS 認証情報を設定: `aws configure`（state バケットと対象リソースへの権限が必要）
+3. `cd terraform && terraform init`（S3 から state を自動取得）
+4. `.\scripts\deploy.ps1 dev`（または prod）でデプロイ
+
+> state は S3 で一元管理されているため、どのPCからでも同じ状態に対して操作できる。
+> 同時に apply してもロックで衝突を防ぐ。
+
 ## サンプルデータの投入
 
 デプロイ後、出力された URL を渡して実行:
