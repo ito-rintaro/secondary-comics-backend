@@ -4,54 +4,57 @@
 
 ## 前提
 
-Terraform 系のコマンドは `terraform` フォルダ内で実行する。
-最初に1回、移動しておく:
-
-```powershell
-cd C:\Users\itori\Documents\secondary-comics-backend\terraform
-```
-
-> どこからでも実行したい場合は `-chdir` を付ける:
-> ```powershell
-> terraform -chdir="C:\Users\itori\Documents\secondary-comics-backend\terraform" apply
-> ```
+- ラッパースクリプト（`scripts\deploy.ps1` など）は**プロジェクト直下**から実行する。
+- `terraform` を直接叩く場合は `terraform` フォルダ内で実行する（`cd terraform`）。
 
 ---
 
-## Terraform（インフラ操作）
+## 環境（dev / prod）の出し分け
 
-| 目的 | コマンド | 説明 |
-|------|----------|------|
-| 初期化 | `terraform init` | 初回 / プロバイダ変更時のみ。プロバイダをダウンロード |
-| 確認 | `terraform plan` | 何が作られる/変わるかを表示（実際には変更しない） |
-| デプロイ | `terraform apply` | 実際に作成・更新する。`yes` 入力で実行 |
-| 削除 | `terraform destroy` | 作ったリソースを全削除。`yes` 入力で実行 |
-| 出力表示 | `terraform output` | API URL など output 値を再表示 |
+環境ごとに **Terraform workspace** で state を分離している。各リソース名には
+環境サフィックス（`-dev` / `-prod`）が付く（例: `secondary-comics-comics-dev`）。
 
-### 基本の流れ
+### デプロイ・削除（推奨：ラッパースクリプト）
+
+プロジェクト直下から、環境を引数で渡すだけ。workspace の選択も自動。
 
 ```powershell
-terraform plan      # 差分を確認
-terraform apply     # デプロイ（確認後に yes）
-terraform destroy   # 全削除（確認後に yes）
+# デプロイ
+.\scripts\deploy.ps1 dev
+.\scripts\deploy.ps1 prod
+
+# 削除
+.\scripts\destroy.ps1 dev
+.\scripts\destroy.ps1 prod
 ```
 
-### 確認プロンプトを省略
+### 中身（手動で Terraform を叩く場合）
 
 ```powershell
-terraform apply -auto-approve     # 即デプロイ
-terraform destroy -auto-approve   # 即削除
+cd terraform
+
+terraform workspace select -or-create dev   # 環境を切り替え（無ければ作成）
+terraform workspace list                     # 今ある環境の一覧（* が選択中）
+
+terraform plan                               # 差分を確認
+terraform apply -auto-approve                # デプロイ
+terraform destroy -auto-approve              # 削除
+terraform output                             # API URL など出力値を再表示
 ```
+
+> ⚠️ workspace が `dev` / `prod` 以外（例: `default`）のままだと、
+> apply 時にエラーで止まる（誤った環境名でのデプロイを防ぐガード）。
 
 ---
 
 ## API の動作確認
 
 `<API_URL>` は `terraform output` で表示される `api_base_url` に置き換える。
-現在の URL:
+**値は環境ごとに異なる**ので、対象環境の workspace を選んでから `terraform output` で確認する。
+dev の現在値:
 
 ```
-https://5g71hxivvc.execute-api.ap-northeast-1.amazonaws.com
+https://upu69qvm0e.execute-api.ap-northeast-1.amazonaws.com
 ```
 
 ### ヘルスチェック（認証不要）
@@ -101,19 +104,25 @@ Invoke-RestMethod -Method Delete "$base/comics/<id>"
 
 API は Cognito 認証が必須。`Authorization: Bearer <IDトークン>` を付けないと 401 になる。
 
-現在の値（`terraform output` で確認できる）:
+ユーザー名は **メールアドレス**（`username_attributes = ["email"]`）。
+値は**環境ごとに異なる**（`terraform output` で確認）。dev の現在値:
 
 ```
-User Pool ID : ap-northeast-1_yYodzAxD3
-Client ID    : 6ae9sch4pmsjk1duoqggchtra
+User Pool ID : ap-northeast-1_lvEOCAFnu
+Client ID    : 2mpap5bool3cskl6uujogpm2n7
 ```
 
 ### テストユーザーを作る（初回のみ）
 
+メールをユーザー名にするので、`--username` にはメールアドレスを渡す。
+CLI 検証では確認メールを送らず、`email_verified=true` で検証済み扱いにする。
+
 ```powershell
-$pool = "<User Pool ID>"
-aws cognito-idp admin-create-user --user-pool-id $pool --username testuser --message-action SUPPRESS
-aws cognito-idp admin-set-user-password --user-pool-id $pool --username testuser --password "TestPass123!" --permanent
+$pool  = "<User Pool ID>"
+$email = "test@example.com"
+aws cognito-idp admin-create-user --user-pool-id $pool --username $email --message-action SUPPRESS `
+  --user-attributes Name=email,Value=$email Name=email_verified,Value=true
+aws cognito-idp admin-set-user-password --user-pool-id $pool --username $email --password "TestPass123!" --permanent
 ```
 
 > パスワードは「8文字以上・大小英字・数字・記号」が必須。
@@ -122,11 +131,12 @@ aws cognito-idp admin-set-user-password --user-pool-id $pool --username testuser
 
 ```powershell
 $client = "<Client ID>"
+$email  = "test@example.com"
 $base   = "<API_URL>"
 
-# IDトークンを取得
+# IDトークンを取得（ユーザー名 = メールアドレス）
 $auth  = aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH --client-id $client `
-  --auth-parameters USERNAME=testuser,PASSWORD=TestPass123! | ConvertFrom-Json
+  --auth-parameters USERNAME=$email,PASSWORD=TestPass123! | ConvertFrom-Json
 $token = $auth.AuthenticationResult.IdToken
 
 # トークン付きで呼ぶ
@@ -156,4 +166,5 @@ Invoke-RestMethod -Method Post "$base/comics" -Headers @{ Authorization = "Beare
 |------|------|
 | `terraform` / `aws` が認識されない | ターミナル（VSCode）を再起動して PATH を反映する |
 | `terraform apply` で権限エラー | IAM ユーザーの権限不足。検証用なら `AdministratorAccess` を付与 |
-| 課金を止めたい | `terraform destroy` で全リソースを削除 |
+| 課金を止めたい | `.\scripts\destroy.ps1 dev`（または prod）で該当環境を削除 |
+| デプロイ先を間違えた | `terraform workspace list` で選択中の環境（*）を確認 |

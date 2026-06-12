@@ -1,3 +1,8 @@
+output "environment" {
+  description = "デプロイ先の環境（workspace 名）"
+  value       = local.environment
+}
+
 output "api_base_url" {
   description = "Base URL of the deployed HTTP API"
   value       = aws_apigatewayv2_stage.default.invoke_url

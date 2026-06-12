@@ -15,28 +15,39 @@
 やることは大きく **「①ログインしてトークンを得る」「②そのトークンを付けて API を叩く」** の2つだけ。
 トークンの検証は API Gateway 側が行うので、フロントは「正しいトークンを付ける」ことに集中すればよい。
 
+### サインイン方式（バックエンド設定）
+
+User Pool は **メールアドレスをユーザー名として使う**設定（`username_attributes = ["email"]`）。
+セルフサインアップ可・サインアップ時にメール確認コードが届く（`auto_verified_attributes = ["email"]`、送信は Cognito 標準）。
+
+→ フロントの `loginMechanisms: ['email']` と一致する。`<Authenticator>` はそのまま「メールでサインイン／サインアップ」で動く。
+
 ---
 
 ## 必要な設定値
 
 バックエンドの `terraform output` で取得できる値をフロントの環境変数に入れる。
+**バックエンドは dev / prod の環境ごとに値が異なる**ので、フロントも環境ごとに `.env` を分ける。
 
-| 変数 | 値（現在） | 用途 |
+以下は **dev 環境**の現在値:
+
+| 変数 | 値（dev・現在） | 用途 |
 |------|-----------|------|
-| User Pool ID | `ap-northeast-1_yYodzAxD3` | Cognito 認証 |
-| App Client ID | `6ae9sch4pmsjk1duoqggchtra` | Cognito 認証 |
+| User Pool ID | `ap-northeast-1_lvEOCAFnu` | Cognito 認証 |
+| App Client ID | `2mpap5bool3cskl6uujogpm2n7` | Cognito 認証 |
 | Region | `ap-northeast-1` | Cognito 認証 |
-| API Base URL | `https://5g71hxivvc.execute-api.ap-northeast-1.amazonaws.com` | API 呼び出し |
+| API Base URL | `https://upu69qvm0e.execute-api.ap-northeast-1.amazonaws.com` | API 呼び出し |
 
 > これらは変わりうるので、ハードコードせず環境変数（Vite なら `.env` の `VITE_*`）で管理する。
+> prod の値はバックエンド側で `terraform workspace select prod && terraform output` で取得して共有する。
 
-`.env` の例（Vite を想定）:
+`.env` の例（Vite を想定 / dev）:
 
 ```
-VITE_COGNITO_USER_POOL_ID=ap-northeast-1_yYodzAxD3
-VITE_COGNITO_CLIENT_ID=6ae9sch4pmsjk1duoqggchtra
+VITE_COGNITO_USER_POOL_ID=ap-northeast-1_lvEOCAFnu
+VITE_COGNITO_CLIENT_ID=2mpap5bool3cskl6uujogpm2n7
 VITE_AWS_REGION=ap-northeast-1
-VITE_API_BASE_URL=https://5g71hxivvc.execute-api.ap-northeast-1.amazonaws.com
+VITE_API_BASE_URL=https://upu69qvm0e.execute-api.ap-northeast-1.amazonaws.com
 ```
 
 ---
