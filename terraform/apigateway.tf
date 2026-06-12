@@ -1,5 +1,5 @@
 resource "aws_apigatewayv2_api" "http" {
-  name          = "${var.project_name}-http-api"
+  name          = "${var.project_name}-http-api${local.name_suffix}"
   protocol_type = "HTTP"
 
   # ブラウザ(別オリジン)から呼べるようにする。
@@ -22,7 +22,7 @@ resource "aws_apigatewayv2_integration" "lambda" {
 # 各ルートに付けると、Lambda に届く前にトークンが検証される。
 resource "aws_apigatewayv2_authorizer" "cognito" {
   api_id           = aws_apigatewayv2_api.http.id
-  name             = "${var.project_name}-cognito-authorizer"
+  name             = "${var.project_name}-cognito-authorizer${local.name_suffix}"
   authorizer_type  = "JWT"
   identity_sources = ["$request.header.Authorization"]
 

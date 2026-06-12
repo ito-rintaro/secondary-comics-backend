@@ -60,29 +60,34 @@ aws configure
 
 > Terraform は `aws configure` で設定した認証情報を自動で利用する。
 
+## 環境（dev / prod）
+
+環境ごとに **Terraform workspace** で state を分離している。リソース名には
+環境サフィックス（`-dev` / `-prod`）が付く（例: `secondary-comics-comics-dev`）。
+dev と prod は独立しており、互いに影響しない。
+
 ## デプロイ手順
 
+プロジェクト直下から、環境を引数で渡すだけ（workspace の選択も自動）:
+
 ```powershell
-cd terraform
-
-# 1. プロバイダのダウンロード（初回のみ）
-terraform init
-
-# 2. 作成されるリソースの確認（実際には変更しない）
-terraform plan
-
-# 3. 実際に構築する（yes と入力）
-terraform apply
+.\scripts\deploy.ps1 dev     # dev にデプロイ
+.\scripts\deploy.ps1 prod    # prod にデプロイ
 ```
 
-完了すると API の URL が出力される:
+完了すると、その環境の API URL などが出力される:
 
 ```
 api_base_url = "https://xxxxxxxx.execute-api.ap-northeast-1.amazonaws.com"
-table_name   = "secondary-comics-comics"
+environment  = "dev"
+table_name   = "secondary-comics-comics-dev"
 ```
 
 この URL を控えておく（後述の `<API_URL>` に使う）。
+
+> 手動で Terraform を叩く場合は `cd terraform` してから
+> `terraform workspace select -or-create dev` → `terraform apply`。
+> workspace が `dev` / `prod` 以外だと apply 時にガードで止まる。
 
 ## サンプルデータの投入
 
@@ -119,11 +124,11 @@ curl -X DELETE <API_URL>/comics/<id>
 
 ## 後片付け（課金を止める）
 
-検証が終わったら、作成したリソースをすべて削除する:
+検証が終わったら、対象環境のリソースをすべて削除する:
 
 ```powershell
-cd terraform
-terraform destroy
+.\scripts\destroy.ps1 dev     # dev を削除
+.\scripts\destroy.ps1 prod    # prod を削除
 ```
 
 ## コスト感

@@ -1,6 +1,11 @@
 # ユーザーを管理する User Pool。
 resource "aws_cognito_user_pool" "main" {
-  name = "${var.project_name}-user-pool"
+  name = "${var.project_name}-user-pool${local.name_suffix}"
+
+  # メールアドレスをユーザー名として使う（メールでサインイン/サインアップ）。
+  username_attributes = ["email"]
+  # サインアップ時にメール確認コードを送る。
+  auto_verified_attributes = ["email"]
 
   # パスワードポリシー（デフォルト相当を明示）
   password_policy {
@@ -14,7 +19,7 @@ resource "aws_cognito_user_pool" "main" {
 
 # アプリがトークンを発行してもらうための窓口（App Client）。
 resource "aws_cognito_user_pool_client" "main" {
-  name         = "${var.project_name}-app-client"
+  name         = "${var.project_name}-app-client${local.name_suffix}"
   user_pool_id = aws_cognito_user_pool.main.id
 
   # 認証フロー:
