@@ -53,6 +53,13 @@ resource "aws_apigatewayv2_route" "routes" {
   authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
 }
 
+# ヘルスチェックは認証不要（authorization_type は既定の "NONE"）。
+resource "aws_apigatewayv2_route" "health" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /health"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.http.id
   name        = "$default"

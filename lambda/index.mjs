@@ -34,6 +34,11 @@ export const handler = async (event) => {
 
   try {
     switch (route) {
+      case "GET /health": {
+        // 認証不要のヘルスチェック。
+        return json(200, { status: "ok" });
+      }
+
       case "GET /comics": {
         const res = await ddb.send(new ScanCommand({ TableName: TABLE }));
         return json(200, res.Items ?? []);
