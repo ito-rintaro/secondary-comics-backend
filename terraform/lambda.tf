@@ -26,7 +26,9 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Lets the function access the single-table app store.
+# Lets the function access the single-table app store and the market-record table.
+# market-record は一覧ソート用 GSI(byNew/byPrice) を Query するため、テーブル本体に
+# 加えて配下のインデックス ARN("<table>/index/*") も許可する。
 resource "aws_iam_role_policy" "dynamodb" {
   name = "${var.project_name}-dynamodb-access${local.name_suffix}"
   role = aws_iam_role.lambda.id
@@ -43,7 +45,11 @@ resource "aws_iam_role_policy" "dynamodb" {
         "dynamodb:Scan",
         "dynamodb:Query",
       ]
-      Resource = [aws_dynamodb_table.app.arn]
+      Resource = [
+        aws_dynamodb_table.app.arn,
+        aws_dynamodb_table.market_record.arn,
+        "${aws_dynamodb_table.market_record.arn}/index/*",
+      ]
     }]
   })
 }
@@ -59,7 +65,8 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      APP_TABLE_NAME = aws_dynamodb_table.app.name
+      APP_TABLE_NAME    = aws_dynamodb_table.app.name
+      MARKET_TABLE_NAME = aws_dynamodb_table.market_record.name
     }
   }
 

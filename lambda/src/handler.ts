@@ -5,8 +5,11 @@ import type {
 import { loadEnv } from "./config/env";
 import { createDocumentClient } from "./adapters/persistence/dynamo/dynamoClient";
 import { DynamoCollectionRepository } from "./adapters/persistence/dynamo/DynamoCollectionRepository";
+import { DynamoMarketRepository } from "./adapters/persistence/dynamo/DynamoMarketRepository";
 import { ListCollection } from "./application/usecases/ListCollection";
+import { ListMarket } from "./application/usecases/ListMarket";
 import { CollectionController } from "./adapters/http/CollectionController";
+import { MarketController } from "./adapters/http/MarketController";
 import { Router } from "./adapters/http/router";
 import { json } from "./adapters/http/httpResponse";
 
@@ -18,7 +21,10 @@ const ddb = createDocumentClient();
 const collectionRepo = new DynamoCollectionRepository(ddb, env.appTableName);
 const listCollection = new ListCollection(collectionRepo);
 const collectionController = new CollectionController(listCollection);
-const router = new Router(collectionController);
+const marketRepo = new DynamoMarketRepository(ddb, env.marketTableName);
+const listMarket = new ListMarket(marketRepo);
+const marketController = new MarketController(listMarket);
+const router = new Router(collectionController, marketController);
 
 export const handler = async (
   event: APIGatewayProxyEventV2WithJWTAuthorizer,
