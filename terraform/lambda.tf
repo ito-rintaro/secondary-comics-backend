@@ -1,7 +1,9 @@
-# Zip the lambda/ directory at apply time.
+# Zip the built Lambda bundle (lambda/dist) at apply time.
+# `npm run build`（esbuild）で dist/index.mjs を生成してから apply すること。
+# scripts/deploy.ps1 はビルドを自動で実行する。
 data "archive_file" "lambda_zip" {
   type        = "zip"
-  source_dir  = "${path.module}/../lambda"
+  source_dir  = "${path.module}/../lambda/dist"
   output_path = "${path.module}/build/lambda.zip"
 }
 
@@ -24,7 +26,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Lets the function read/write the comics table only.
+# Lets the function access the single-table app store.
 resource "aws_iam_role_policy" "dynamodb" {
   name = "${var.project_name}-dynamodb-access${local.name_suffix}"
   role = aws_iam_role.lambda.id
@@ -41,10 +43,7 @@ resource "aws_iam_role_policy" "dynamodb" {
         "dynamodb:Scan",
         "dynamodb:Query",
       ]
-      Resource = [
-        aws_dynamodb_table.comics.arn,
-        aws_dynamodb_table.app.arn,
-      ]
+      Resource = [aws_dynamodb_table.app.arn]
     }]
   })
 }
@@ -60,7 +59,6 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      TABLE_NAME     = aws_dynamodb_table.comics.name
       APP_TABLE_NAME = aws_dynamodb_table.app.name
     }
   }

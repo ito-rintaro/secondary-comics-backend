@@ -1,5 +1,4 @@
 # データモデルのテーブル群。
-# 既存の comics テーブル（dynamodb.tf）は旧デモAPI用に残置。
 
 # --- MarketRecord: 相場の共有マスタ（PK=marketRecordId）。一覧ソート用 GSI を持つため独立テーブル ---
 resource "aws_dynamodb_table" "market_record" {
