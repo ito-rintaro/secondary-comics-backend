@@ -69,20 +69,65 @@ curl.exe "<API_URL>/health"
 ### コレクション取得（`GET /collection` / 認証必須）
 
 `openapi.yaml` 準拠のエンドポイント。**Cognito の JWT が必須**で、トークン無し/無効は `401`。
-現状は DB 未実装のため、誰がアクセスしても**同じ固定のダミー配列**（`CollectionItem` 2件）を返す。
+サーバーは JWT の `sub` を userId として取り出し（`Authorizer` 検証済みクレームから取得。
+リクエストでは userId を受け取らない）、**`app` テーブルからそのユーザーの Collection を取得**して返す。
 トークンの取得手順は後述の「Cognito 認証」を参照。
 
 ```powershell
 $base = "<API_URL>"
 # トークン無し → 401 Unauthorized
 curl.exe "$base/collection"
-# トークン付き → 200 + CollectionItem の配列
+# トークン付き → 200 + CollectionItem の配列（そのユーザーの所有品）
 Invoke-RestMethod "$base/collection" -Headers @{ Authorization = "Bearer $token" }
 ```
 
-> サーバーは JWT の `sub` を userId として取得済み（`Authorizer` 検証済みクレームから取得。
-> リクエストでは userId を受け取らない）。ただし現状は DB 未実装のため絞り込みはせず、
-> 全員に同じ固定配列を返す。DynamoDB 実装後、この `sub` でユーザーごとに Query するよう差し替える。
+サーバーは `app` テーブルを `PK = "USER#<sub>"` かつ `begins_with(SK, "COLLECTION#")` で Query し、
+各レコードを `id`（= SK から `COLLECTION#` を除いた値）＋ `data` の中身に展開して返す。
+
+#### コレクションを手動で投入する（app テーブル）
+
+API は読み取り専用（GET のみ）なので、データは DynamoDB へ直接入れる。
+**1 件 = 1 レコード**で、キー以外は `data`（Map）にまとめる（属性を増やさないため）。
+
+| 属性 | 値 |
+|---|---|
+| `PK` | `USER#<Cognito の sub>` |
+| `SK` | `COLLECTION#<コレクションの id>` |
+| `data` | `CollectionItem` の **`id` 以外**のフィールド（`title` / `author` / `publisher` / `volume` / `year` / `condition` / `qty` / `cost` / `market` / `marketSource` / `flags` / `purchaseDate` / `store` / `location` / `memo` / `imageUrl` / `updatedAt`） |
+
+> `id` はレコードには持たせず、`SK` の `COLLECTION#` を除いた値がそのまま API の `id` になる。
+> `<sub>` は対象ユーザーの Cognito `sub`（`aws cognito-idp admin-get-user ...` の `sub` 属性で確認）。
+
+AWS CLI での投入例（`<App テーブル名>` は `terraform output app_table_name`）:
+
+```powershell
+$app = (terraform -chdir=terraform output -raw app_table_name)
+aws dynamodb put-item --table-name $app --item (@'
+{
+  "PK":   {"S": "USER#<sub>"},
+  "SK":   {"S": "COLLECTION#seed0"},
+  "data": {"M": {
+    "title":        {"S": "AKIRA 全6巻 初版帯付セット"},
+    "author":       {"S": "大友克洋"},
+    "publisher":    {"S": "講談社 / KCデラックス"},
+    "volume":       {"S": "全6巻"},
+    "year":         {"S": "1984"},
+    "condition":    {"S": "A"},
+    "qty":          {"N": "1"},
+    "cost":         {"N": "8000"},
+    "market":       {"N": "35000"},
+    "marketSource": {"S": "manual"},
+    "flags":        {"M": {"firstEd": {"BOOL": true}, "obi": {"BOOL": true}, "special": {"BOOL": false}}},
+    "purchaseDate": {"S": ""},
+    "store":        {"S": "まんだらけ"},
+    "location":     {"S": "本棚A"},
+    "memo":         {"S": "初版・帯揃い。背ヤケ少なめ。"},
+    "imageUrl":     {"S": ""},
+    "updatedAt":    {"N": "1718000000000"}
+  }}
+}
+'@ -replace '\r','')
+```
 
 ### サンプルデータ投入（comics テーブル / 旧デモ）
 
@@ -106,7 +151,7 @@ comics テーブルへ直接投入（API/認証を介さない）:
 | 種類 | PK | SK |
 |---|---|---|
 | User | `USER#<userId>` | `PROFILE` |
-| Collection | `USER#<userId>` | `ITEM#<itemId>` |
+| Collection | `USER#<userId>` | `COLLECTION#<itemId>` |
 | Price | `PRICE#<priceId>` | `<YYYY-MM>` |
 
 各アイテムは **`PK` / `SK` ＋ `data`（ネスト Map）** の形。
@@ -145,7 +190,7 @@ aws dynamodb query --table-name $app --key-condition-expression "PK = :pk" `
 # 所有品のみ
 aws dynamodb query --table-name $app `
   --key-condition-expression "PK = :pk AND begins_with(SK, :i)" `
-  --expression-attribute-values "{\":pk\":{\"S\":\"$pk\"},\":i\":{\"S\":\"ITEM#\"}}"
+  --expression-attribute-values "{\":pk\":{\"S\":\"$pk\"},\":i\":{\"S\":\"COLLECTION#\"}}"
 # 価格推移
 aws dynamodb query --table-name $app --key-condition-expression "PK = :pk" `
   --expression-attribute-values '{\":pk\":{\"S\":\"PRICE#pr-001\"}}'

@@ -117,14 +117,14 @@ books.forEach((b, i) => {
 });
 
 // Collection: the test user owns the first few books (references MarketRecord).
-// single table key: PK="USER#<userId>", SK="ITEM#<itemId>"
+// single table key: PK="USER#<userId>", SK="COLLECTION#<itemId>"
 const collectionItems = books.slice(0, 4).map((b, i) => {
   const suffix = String(i + 1).padStart(3, "0");
   const itemId = `col-${suffix}`;
   const market = marketItems[i].price;
   return {
     PK: `USER#${USER_ID}`,
-    SK: `ITEM#${itemId}`,
+    SK: `COLLECTION#${itemId}`,
     data: {
       entityType: "CollectionItem",
       userId: USER_ID,
