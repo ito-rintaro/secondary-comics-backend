@@ -5,8 +5,9 @@ info:
   version: 0.1.0
   description: |
     二次流通コミックの資産管理アプリのバックエンド API。
-    まずは「My コレクション」の取得（GET）のみを定義する。
-    登録・編集・削除（save / delete）は今回スコープ外。
+    「My コレクション」の取得（GET /collection）と
+    「マーケット相場」の取得（GET /market）を定義する。
+    コレクションの登録・編集・削除（save / delete）は今回スコープ外。
 
 servers:
   - url: https://api.example.com/dev
@@ -40,6 +41,38 @@ paths:
               examples:
                 sample:
                   $ref: '#/components/examples/CollectionList'
+        '401':
+          description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /market:
+    get:
+      operationId: listMarket
+      summary: マーケット相場の一覧を取得
+      description: |
+        二次流通マーケットの相場レコードを配列で返す。
+        コレクションと異なりユーザー個別ではなく全ユーザー共通（グローバル）の
+        データで、sub による絞り込みは行わない。
+        検索・ソート（新着/値上がり等）はフロント側で行うため、
+        サーバーは生のレコード配列のみを返す（クエリパラメータなし）。
+      tags: [market]
+      security:
+        - cognito: []
+      responses:
+        '200':
+          description: マーケットレコードの配列（0 件なら空配列）
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketRecord'
+              examples:
+                sample:
+                  $ref: '#/components/examples/MarketList'
         '401':
           description: 未認証（トークンが無い／無効）
           content:
@@ -187,6 +220,76 @@ components:
           type: boolean
           description: 特装・サイン等の特別仕様かどうか
 
+    # マーケットの相場レコード 1 件。フロントの domain/market/MarketRecord.ts と一致させる。
+    MarketRecord:
+      type: object
+      required:
+        - id
+        - title
+        - author
+        - publisher
+        - volume
+        - seller
+        - condition
+        - flags
+        - history
+        - price
+        - change
+        - listedAt
+      properties:
+        id:
+          type: string
+          description: レコード識別子（システム生成）
+          example: mk0
+        title:
+          type: string
+          description: 作品名
+          example: AKIRA 全6巻 初版帯付 美品セット
+        author:
+          type: string
+          description: 著者
+          example: 大友克洋
+        publisher:
+          type: string
+          description: 出版社 / レーベル
+          example: 講談社
+        volume:
+          type: string
+          description: 巻数（"全6巻" "第1巻" 等の自由文字列）
+          example: 全6巻
+        seller:
+          type: string
+          description: 出品者 / ショップ名
+          example: コレクター田中
+        condition:
+          $ref: '#/components/schemas/Condition'
+        flags:
+          $ref: '#/components/schemas/ConditionFlags'
+        history:
+          type: array
+          description: 直近 12 ヶ月の価格推移（円）。要素数は 12。末尾が現在価格。
+          items:
+            type: integer
+            minimum: 0
+          minItems: 12
+          maxItems: 12
+          example: [30000, 30500, 31000, 31800, 32500, 33000, 33600, 34200, 34800, 35100, 35400, 35400]
+        price:
+          type: integer
+          minimum: 0
+          description: 現在価格（円）。history の末尾と一致する。
+          example: 35400
+        change:
+          type: number
+          format: float
+          description: 期間変化率 (末尾 - 先頭) / 先頭。0.18 なら +18%。
+          example: 0.18
+        listedAt:
+          type: integer
+          format: int64
+          description: 新着ソート用の連番（大きいほど新しい）。
+          example: 0
+
     Error:
       type: object
       required: [message]
@@ -235,3 +338,31 @@ components:
           memo: 初版帯付き2冊保有。値上がり中。
           imageUrl: ''
           updatedAt: 1718000004000
+
+    MarketList:
+      summary: 2 件のマーケット相場例
+      value:
+        - id: mk0
+          title: AKIRA 全6巻 初版帯付 美品セット
+          author: 大友克洋
+          publisher: 講談社
+          volume: 全6巻
+          seller: コレクター田中
+          condition: A
+          flags: { firstEd: true, obi: true, special: false }
+          history: [30000, 30500, 31000, 31800, 32500, 33000, 33600, 34200, 34800, 35100, 35400, 35400]
+          price: 35400
+          change: 0.18
+          listedAt: 0
+        - id: mk1
+          title: 幽☆遊☆白書 直筆サイン入り 第1巻
+          author: 冨樫義博
+          publisher: 集英社
+          volume: 第1巻
+          seller: mangavault
+          condition: A
+          flags: { firstEd: true, obi: true, special: true }
+          history: [52000, 53500, 55000, 57000, 59000, 60500, 62000, 63500, 65000, 66500, 67500, 67600]
+          price: 67600
+          change: 0.3
+          listedAt: 1

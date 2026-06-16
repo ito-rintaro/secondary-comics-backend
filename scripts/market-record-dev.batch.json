@@ -1,0 +1,119 @@
+{
+  "secondary-comics-market-record-dev": [
+    {
+      "PutRequest": {
+        "Item": {
+          "marketRecordId": { "S": "mk0" },
+          "gsiPk":          { "S": "RECORD" },
+          "title":          { "S": "AKIRA 全6巻 初版帯付 美品セット" },
+          "author":         { "S": "大友克洋" },
+          "publisher":      { "S": "講談社" },
+          "volume":         { "S": "全6巻" },
+          "seller":         { "S": "コレクター田中" },
+          "condition":      { "S": "A" },
+          "flags":          { "M": { "firstEd": { "BOOL": true }, "obi": { "BOOL": true }, "special": { "BOOL": false } } },
+          "history":        { "L": [
+            { "N": "30000" }, { "N": "30500" }, { "N": "31000" }, { "N": "31800" },
+            { "N": "32500" }, { "N": "33000" }, { "N": "33600" }, { "N": "34200" },
+            { "N": "34800" }, { "N": "35100" }, { "N": "35400" }, { "N": "35400" }
+          ] },
+          "price":          { "N": "35400" },
+          "change":         { "N": "0.18" },
+          "listedAt":       { "N": "0" }
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "marketRecordId": { "S": "mk1" },
+          "gsiPk":          { "S": "RECORD" },
+          "title":          { "S": "幽☆遊☆白書 直筆サイン入り 第1巻" },
+          "author":         { "S": "冨樫義博" },
+          "publisher":      { "S": "集英社" },
+          "volume":         { "S": "第1巻" },
+          "seller":         { "S": "mangavault" },
+          "condition":      { "S": "A" },
+          "flags":          { "M": { "firstEd": { "BOOL": true }, "obi": { "BOOL": true }, "special": { "BOOL": true } } },
+          "history":        { "L": [
+            { "N": "52000" }, { "N": "53500" }, { "N": "55000" }, { "N": "57000" },
+            { "N": "59000" }, { "N": "60500" }, { "N": "62000" }, { "N": "63500" },
+            { "N": "65000" }, { "N": "66500" }, { "N": "67500" }, { "N": "67600" }
+          ] },
+          "price":          { "N": "67600" },
+          "change":         { "N": "0.3" },
+          "listedAt":       { "N": "1" }
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "marketRecordId": { "S": "mk2" },
+          "gsiPk":          { "S": "RECORD" },
+          "title":          { "S": "鬼滅の刃 第1巻 初版帯付" },
+          "author":         { "S": "吾峠呼世晴" },
+          "publisher":      { "S": "集英社" },
+          "volume":         { "S": "第1巻" },
+          "seller":         { "S": "まんだらけ" },
+          "condition":      { "S": "S" },
+          "flags":          { "M": { "firstEd": { "BOOL": true }, "obi": { "BOOL": true }, "special": { "BOOL": false } } },
+          "history":        { "L": [
+            { "N": "7000" }, { "N": "7200" }, { "N": "7500" }, { "N": "7800" },
+            { "N": "8000" }, { "N": "8300" }, { "N": "8500" }, { "N": "8700" },
+            { "N": "8800" }, { "N": "8900" }, { "N": "9000" }, { "N": "9000" }
+          ] },
+          "price":          { "N": "9000" },
+          "change":         { "N": "0.2857" },
+          "listedAt":       { "N": "2" }
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "marketRecordId": { "S": "mk3" },
+          "gsiPk":          { "S": "RECORD" },
+          "title":          { "S": "夜想曲とねこ 第1巻" },
+          "author":         { "S": "白瀬ゆき" },
+          "publisher":      { "S": "月夜出版" },
+          "volume":         { "S": "第1巻" },
+          "seller":         { "S": "ねこ書店" },
+          "condition":      { "S": "B" },
+          "flags":          { "M": { "firstEd": { "BOOL": false }, "obi": { "BOOL": false }, "special": { "BOOL": false } } },
+          "history":        { "L": [
+            { "N": "8000" }, { "N": "7800" }, { "N": "7600" }, { "N": "7500" },
+            { "N": "7300" }, { "N": "7200" }, { "N": "7000" }, { "N": "6900" },
+            { "N": "6800" }, { "N": "6700" }, { "N": "6600" }, { "N": "6500" }
+          ] },
+          "price":          { "N": "6500" },
+          "change":         { "N": "-0.1875" },
+          "listedAt":       { "N": "3" }
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "marketRecordId": { "S": "mk4" },
+          "gsiPk":          { "S": "RECORD" },
+          "title":          { "S": "星巡りの観測者 第1巻 特装版" },
+          "author":         { "S": "天野星司" },
+          "publisher":      { "S": "宙の書房" },
+          "volume":         { "S": "第1巻" },
+          "seller":         { "S": "古書みなと" },
+          "condition":      { "S": "S" },
+          "flags":          { "M": { "firstEd": { "BOOL": true }, "obi": { "BOOL": true }, "special": { "BOOL": true } } },
+          "history":        { "L": [
+            { "N": "23000" }, { "N": "23500" }, { "N": "24000" }, { "N": "24200" },
+            { "N": "24500" }, { "N": "24800" }, { "N": "25000" }, { "N": "25200" },
+            { "N": "25400" }, { "N": "25600" }, { "N": "25800" }, { "N": "26000" }
+          ] },
+          "price":          { "N": "26000" },
+          "change":         { "N": "0.1304" },
+          "listedAt":       { "N": "4" }
+        }
+      }
+    }
+  ]
+}

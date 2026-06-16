@@ -23,31 +23,38 @@ domain  ←  application(usecase + port)  ←  adapters  ←  handler
 lambda/
 ├─ src/
 │  ├─ domain/                      … 純粋な型とルール（外部依存ゼロ）
-│  │  └─ collection/
-│  │     ├─ CollectionItem.ts      … 所有品1件。openapi.yaml の CollectionItem と一致
-│  │     ├─ Condition.ts           … S/A/B/C
-│  │     ├─ ConditionFlags.ts      … firstEd/obi/special
-│  │     └─ MarketSource.ts        … manual/auto/estimate
+│  │  ├─ collection/
+│  │  │  ├─ CollectionItem.ts      … 所有品1件。openapi.yaml の CollectionItem と一致
+│  │  │  ├─ Condition.ts           … S/A/B/C（market と共有）
+│  │  │  ├─ ConditionFlags.ts      … firstEd/obi/special（market と共有）
+│  │  │  └─ MarketSource.ts        … manual/auto/estimate
+│  │  └─ market/
+│  │     └─ MarketRecord.ts        … 相場1件。openapi.yaml の MarketRecord と一致
 │  │
 │  ├─ application/                 … ユースケースと「ポート」(interface)
 │  │  ├─ ports/
-│  │  │  └─ CollectionRepository.ts … listByUser(userId): Promise<CollectionItem[]>
+│  │  │  ├─ CollectionRepository.ts … listByUser(userId): Promise<CollectionItem[]>
+│  │  │  └─ MarketRepository.ts    … listAll(): Promise<MarketRecord[]>
 │  │  └─ usecases/
-│  │     └─ ListCollection.ts      … repo を呼んで一覧を返す（AWS非依存）
+│  │     ├─ ListCollection.ts      … repo を呼んで一覧を返す（AWS非依存）
+│  │     └─ ListMarket.ts          … repo を呼んで相場一覧を返す（AWS非依存）
 │  │
 │  ├─ adapters/                    … 内と外の変換層
 │  │  ├─ http/                     … 入力アダプタ（API Gateway 側）
 │  │  │  ├─ httpResponse.ts        … json() ヘルパー
 │  │  │  ├─ extractUserId.ts       … event の JWT claims から sub を取り出す
 │  │  │  ├─ CollectionController.ts … event → usecase → HTTP応答
+│  │  │  ├─ MarketController.ts     … event → usecase → HTTP応答（userId 不要）
 │  │  │  └─ router.ts              … routeKey → controller のディスパッチ
 │  │  └─ persistence/dynamo/       … 出力アダプタ（DynamoDB 側）
 │  │     ├─ dynamoClient.ts        … DocumentClient 生成
 │  │     ├─ collectionRecordMapper.ts … {PK,SK,data} ⇄ CollectionItem
-│  │     └─ DynamoCollectionRepository.ts … CollectionRepository の実装
+│  │     ├─ DynamoCollectionRepository.ts … CollectionRepository の実装
+│  │     ├─ marketRecordMapper.ts  … テーブル行 → MarketRecord
+│  │     └─ DynamoMarketRepository.ts … MarketRepository の実装（byNew GSI）
 │  │
 │  ├─ config/
-│  │  └─ env.ts                    … 環境変数(APP_TABLE_NAME 等)の読み取りを一元化
+│  │  └─ env.ts                    … 環境変数(APP_TABLE_NAME / MARKET_TABLE_NAME)の読み取りを一元化
 │  │
 │  └─ handler.ts                   … 合成ルート：依存を組み立てて router へ
 │
@@ -81,6 +88,23 @@ lambda/
 
 DynamoDB 依存は `DynamoCollectionRepository` と `collectionRecordMapper` の
 2ファイルだけに閉じ込められている。
+
+## リクエストの流れ（`GET /market`）
+
+コレクションとほぼ同じだが、マーケットは**全ユーザー共通（グローバル）**のため
+`userId` を使わない点が異なる。
+
+1. `handler.ts` が `DynamoMarketRepository`（独立テーブル `market-record`）を生成して
+   `ListMarket` に注入し、`router` に渡す。
+2. `router` が `GET /market` を `MarketController.list` に振り分ける。
+   認証は API Gateway の Cognito Authorizer がルート手前で済ませている。
+3. `ListMarket.execute()` を実行（引数なし）。
+4. usecase は `MarketRepository.listAll` を呼ぶ。実装が `byNew` GSI を
+   `gsiPk="RECORD"` で Query し、`marketRecordMapper` が各行 → `MarketRecord[]` に変換。
+5. Controller が結果を `httpResponse.json(200, records)` で返す。
+
+並び順（新着/値上がり等）はフロント側で行うため、サーバーは生の配列を返す。
+`Condition` / `ConditionFlags` は `domain/collection` の型を再利用している。
 
 ## 拡張のしかた（将来の save / delete）
 

@@ -129,6 +129,70 @@ aws dynamodb put-item --table-name $app --item (@'
 '@ -replace '\r','')
 ```
 
+### マーケット取得（`GET /market` / 認証必須）
+
+`openapi.yaml` 準拠のエンドポイント。コレクションと同じく **Cognito の JWT が必須**だが、
+マーケットは**全ユーザー共通（グローバル）**のデータなので `sub` による絞り込みは行わない。
+サーバーは `market-record` テーブルを `byNew` GSI（`gsiPk="RECORD"`）で Query し、
+各行を `MarketRecord`（`id` = `marketRecordId`）に変換して**生の配列**で返す
+（検索・ソートはフロント側）。
+
+```powershell
+$base = "<API_URL>"
+# トークン無し → 401 Unauthorized
+curl.exe "$base/market"
+# トークン付き → 200 + MarketRecord の配列（全ユーザー共通）
+Invoke-RestMethod "$base/market" -Headers @{ Authorization = "Bearer $token" }
+```
+
+#### マーケット相場を手動で投入する（market-record テーブル）
+
+API は読み取り専用（GET のみ）なので、データは DynamoDB へ直接入れる。
+**1 件 = 1 レコード**で、コレクションと違い属性は**トップレベルにフラット**に持つ
+（`id` という属性は持たず、`marketRecordId` がそのまま API の `id` になる）。
+全件を一覧取得できるよう、**`gsiPk` は必ず `"RECORD"` 固定**にする。
+
+| 属性 | 値 |
+|---|---|
+| `marketRecordId` | レコードの id（= API の `id`） |
+| `gsiPk` | `"RECORD"` 固定（GSI で全件を 1 束にまとめる） |
+| `title` / `author` / `publisher` / `volume` / `seller` | 書誌・出品情報 |
+| `condition` | `S` / `A` / `B` / `C` |
+| `flags` | `{ firstEd, obi, special }`（Map） |
+| `history` | 価格推移（円）の配列。要素数 12・末尾が現在価格 |
+| `price` | 現在価格（円）。`history` の末尾と一致 |
+| `change` | 期間変化率 `(末尾 - 先頭) / 先頭`（例: `0.18`） |
+| `listedAt` | 新着ソート用の数値（大きいほど新しい。GSI `byNew` のキー） |
+
+AWS CLI での投入例（`<Market テーブル名>` は `terraform output market_record_table_name`）:
+
+```powershell
+$mr = (terraform -chdir=terraform output -raw market_record_table_name)
+aws dynamodb put-item --table-name $mr --item (@'
+{
+  "marketRecordId": {"S": "mk0"},
+  "gsiPk":          {"S": "RECORD"},
+  "title":          {"S": "AKIRA 全6巻 初版帯付 美品セット"},
+  "author":         {"S": "大友克洋"},
+  "publisher":      {"S": "講談社"},
+  "volume":         {"S": "全6巻"},
+  "seller":         {"S": "コレクター田中"},
+  "condition":      {"S": "A"},
+  "flags":          {"M": {"firstEd": {"BOOL": true}, "obi": {"BOOL": true}, "special": {"BOOL": false}}},
+  "history":        {"L": [
+    {"N": "30000"}, {"N": "30500"}, {"N": "31000"}, {"N": "31800"},
+    {"N": "32500"}, {"N": "33000"}, {"N": "33600"}, {"N": "34200"},
+    {"N": "34800"}, {"N": "35100"}, {"N": "35400"}, {"N": "35400"}
+  ]},
+  "price":          {"N": "35400"},
+  "change":         {"N": "0.18"},
+  "listedAt":       {"N": "0"}
+}
+'@ -replace '\r','')
+```
+
+> `gsiPk` を付け忘れると `byNew` GSI に載らず、`GET /market` の結果に出てこないので注意。
+
 ### 設計テーブルへのテストデータ投入（MarketRecord + 単一テーブル app）
 
 テーブル構成:
