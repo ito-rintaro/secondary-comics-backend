@@ -66,6 +66,24 @@ curl.exe "<API_URL>/health"
 # => {"status":"ok"}
 ```
 
+### コレクション取得（`GET /collection` / 認証必須）
+
+`openapi.yaml` 準拠のエンドポイント。**Cognito の JWT が必須**で、トークン無し/無効は `401`。
+現状は DB 未実装のため、誰がアクセスしても**同じ固定のダミー配列**（`CollectionItem` 2件）を返す。
+トークンの取得手順は後述の「Cognito 認証」を参照。
+
+```powershell
+$base = "<API_URL>"
+# トークン無し → 401 Unauthorized
+curl.exe "$base/collection"
+# トークン付き → 200 + CollectionItem の配列
+Invoke-RestMethod "$base/collection" -Headers @{ Authorization = "Bearer $token" }
+```
+
+> サーバーは JWT の `sub` を userId として取得済み（`Authorizer` 検証済みクレームから取得。
+> リクエストでは userId を受け取らない）。ただし現状は DB 未実装のため絞り込みはせず、
+> 全員に同じ固定配列を返す。DynamoDB 実装後、この `sub` でユーザーごとに Query するよう差し替える。
+
 ### サンプルデータ投入（comics テーブル / 旧デモ）
 
 comics テーブルへ直接投入（API/認証を介さない）:

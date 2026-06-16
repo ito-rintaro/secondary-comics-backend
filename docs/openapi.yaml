@@ -1,0 +1,237 @@
+openapi: 3.0.3
+
+info:
+  title: Secondary Comics API
+  version: 0.1.0
+  description: |
+    二次流通コミックの資産管理アプリのバックエンド API。
+    まずは「My コレクション」の取得（GET）のみを定義する。
+    登録・編集・削除（save / delete）は今回スコープ外。
+
+servers:
+  - url: https://api.example.com/dev
+    description: dev 環境（実際の API Gateway ドメインに差し替える）
+
+# ───────────────────────────────────────────────
+# エンドポイント
+# ───────────────────────────────────────────────
+paths:
+  /collection:
+    get:
+      operationId: listCollection
+      summary: ログイン中ユーザーのコレクション一覧を取得
+      description: |
+        Cognito の JWT に含まれるユーザー識別子（sub）で絞り込み、
+        そのユーザーが登録した全アイテムを配列で返す。
+        検索・フィルタ・ソート・集計はフロント側で行うため、
+        サーバーは生のアイテム配列のみを返す（クエリパラメータなし）。
+      tags: [collection]
+      security:
+        - cognito: []
+      responses:
+        '200':
+          description: コレクションのアイテム配列（0 件なら空配列）
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CollectionItem'
+              examples:
+                sample:
+                  $ref: '#/components/examples/CollectionList'
+        '401':
+          description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+# ───────────────────────────────────────────────
+# 再利用部品
+# ───────────────────────────────────────────────
+components:
+  securitySchemes:
+    cognito:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Amazon Cognito が発行する JWT を Authorization: Bearer <token> で送る。
+        userId はサーバー側でトークンの sub から取得するため、
+        リクエストには userId を含めない（他人のデータを指定できないようにする）。
+
+  schemas:
+    # コレクションの所有品 1 件。フロントの domain/collection/CollectionItem.ts と一致させる。
+    CollectionItem:
+      type: object
+      required:
+        - id
+        - title
+        - author
+        - publisher
+        - volume
+        - year
+        - condition
+        - qty
+        - cost
+        - market
+        - marketSource
+        - flags
+        - purchaseDate
+        - store
+        - location
+        - memo
+        - imageUrl
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: アイテム識別子（システム生成）
+          example: seed0
+        title:
+          type: string
+          description: 作品名
+          example: AKIRA 全6巻 初版帯付セット
+        author:
+          type: string
+          description: 著者
+          example: 大友克洋
+        publisher:
+          type: string
+          description: 出版社 / レーベル
+          example: 講談社 / KCデラックス
+        volume:
+          type: string
+          description: 巻数（"全6巻" "第1巻" 等の自由文字列）
+          example: 全6巻
+        year:
+          type: string
+          description: 発行年（文字列）
+          example: '1984'
+        condition:
+          $ref: '#/components/schemas/Condition'
+        qty:
+          type: integer
+          minimum: 1
+          description: 所有数
+          example: 1
+        cost:
+          type: integer
+          minimum: 0
+          description: 取得価格（1 点あたり・円）
+          example: 8000
+        market:
+          type: integer
+          minimum: 0
+          description: 現在相場（1 点あたり・円）
+          example: 35000
+        marketSource:
+          $ref: '#/components/schemas/MarketSource'
+        flags:
+          $ref: '#/components/schemas/ConditionFlags'
+        purchaseDate:
+          type: string
+          description: 購入日（YYYY-MM-DD。未入力は空文字）
+          example: ''
+        store:
+          type: string
+          description: 購入店
+          example: まんだらけ
+        location:
+          type: string
+          description: 保管場所
+          example: 本棚A
+        memo:
+          type: string
+          description: メモ（自由記述）
+          example: 初版・帯揃い。背ヤケ少なめ。
+        imageUrl:
+          type: string
+          description: |
+            画像。現状はフロントで dataURL を保持。
+            将来はオブジェクトストレージ（S3）の URL に変更予定。空文字可。
+          example: ''
+        updatedAt:
+          type: integer
+          format: int64
+          description: 最終更新時刻（epoch ミリ秒）
+          example: 1718000000000
+
+    # 状態ランク。domain/shared/Condition.ts と一致。
+    Condition:
+      type: string
+      enum: [S, A, B, C]
+      description: |
+        S=新品・美品 / A=良い / B=並 / C=傷み・難あり
+
+    # 相場の出所。domain/collection/CollectionItem.ts の MarketSource と一致。
+    MarketSource:
+      type: string
+      enum: [manual, auto, estimate]
+      description: |
+        manual=手入力 / auto=自動取得 / estimate=推定。現状は manual 固定。
+
+    # 付帯状態フラグ。domain/collection/ConditionFlags.ts と一致。
+    ConditionFlags:
+      type: object
+      required: [firstEd, obi, special]
+      properties:
+        firstEd:
+          type: boolean
+          description: 初版かどうか
+        obi:
+          type: boolean
+          description: 帯付きかどうか
+        special:
+          type: boolean
+          description: 特装・サイン等の特別仕様かどうか
+
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          example: Unauthorized
+
+  examples:
+    CollectionList:
+      summary: 2 件のコレクション例
+      value:
+        - id: seed0
+          title: AKIRA 全6巻 初版帯付セット
+          author: 大友克洋
+          publisher: 講談社 / KCデラックス
+          volume: 全6巻
+          year: '1984'
+          condition: A
+          qty: 1
+          cost: 8000
+          market: 35000
+          marketSource: manual
+          flags: { firstEd: true, obi: true, special: false }
+          purchaseDate: ''
+          store: まんだらけ
+          location: 本棚A
+          memo: 初版・帯揃い。背ヤケ少なめ。
+          imageUrl: ''
+          updatedAt: 1718000000000
+        - id: seed4
+          title: 鬼滅の刃 第1巻 初版
+          author: 吾峠呼世晴
+          publisher: 集英社 / ジャンプコミックス
+          volume: 第1巻
+          year: '2016'
+          condition: S
+          qty: 2
+          cost: 1500
+          market: 9000
+          marketSource: manual
+          flags: { firstEd: true, obi: true, special: false }
+          purchaseDate: ''
+          store: ヤフオク
+          location: 防湿庫
+          memo: 初版帯付き2冊保有。値上がり中。
+          imageUrl: ''
+          updatedAt: 1718000004000

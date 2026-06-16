@@ -137,6 +137,15 @@ export async function listComics() {
   return res.json();
 }
 
+// My コレクション取得（openapi.yaml の GET /collection に対応）。
+// ログイン中ユーザーのコレクションを CollectionItem[] で返す。
+// 現状バックエンドは DB 未実装で、全員に同じ固定データを返す（疎通確認用）。
+export async function listCollection() {
+  const res = await fetch(`${BASE}/collection`, { headers: await authHeader() });
+  if (res.status === 401) throw new Error("未認証です。再ログインしてください。");
+  return res.json();
+}
+
 export async function createComic(data: {
   title: string;
   author?: string;
