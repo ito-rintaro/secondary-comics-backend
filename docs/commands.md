@@ -12,7 +12,7 @@
 ## 環境（dev / prod）の出し分け
 
 環境ごとに **Terraform workspace** で state を分離している。各リソース名には
-環境サフィックス（`-dev` / `-prod`）が付く（例: `secondary-comics-comics-dev`）。
+環境サフィックス（`-dev` / `-prod`）が付く（例: `secondary-comics-app-dev`）。
 
 ### デプロイ・削除（推奨：ラッパースクリプト）
 
@@ -129,14 +129,6 @@ aws dynamodb put-item --table-name $app --item (@'
 '@ -replace '\r','')
 ```
 
-### サンプルデータ投入（comics テーブル / 旧デモ）
-
-comics テーブルへ直接投入（API/認証を介さない）:
-
-```powershell
-.\scripts\seed-comics.ps1
-```
-
 ### 設計テーブルへのテストデータ投入（MarketRecord + 単一テーブル app）
 
 テーブル構成:
@@ -212,32 +204,6 @@ aws dynamodb query --table-name $mr --index-name byPrice `
   --expression-attribute-values '{\":v\":{\"S\":\"RECORD\"}}' --no-scan-index-forward
 ```
 
-### CRUD（PowerShell の Invoke-RestMethod）
-
-```powershell
-$base = "<API_URL>"
-
-# 一覧
-Invoke-RestMethod "$base/comics"
-
-# 作成
-Invoke-RestMethod -Method Post "$base/comics" -ContentType "application/json" `
-  -Body '{"title":"テスト作品","author":"テスト作者"}'
-
-# 1件取得
-Invoke-RestMethod "$base/comics/<id>"
-
-# 更新
-Invoke-RestMethod -Method Put "$base/comics/<id>" -ContentType "application/json" `
-  -Body '{"title":"更新後タイトル"}'
-
-# 削除
-Invoke-RestMethod -Method Delete "$base/comics/<id>"
-```
-
-> 日本語を含むデータを送るときは、PowerShell に直接打つと文字化けすることがある。
-> その場合は `scripts/seed.mjs` のように node 経由か、ファイルから読み込んで送る。
-
 ---
 
 ## Cognito 認証（API を使うためのトークン取得）
@@ -279,12 +245,8 @@ $auth  = aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH --client-i
   --auth-parameters USERNAME=$email,PASSWORD=TestPass123! | ConvertFrom-Json
 $token = $auth.AuthenticationResult.IdToken
 
-# トークン付きで呼ぶ
-Invoke-RestMethod "$base/comics" -Headers @{ Authorization = "Bearer $token" }
-
-# 作成の例
-Invoke-RestMethod -Method Post "$base/comics" -Headers @{ Authorization = "Bearer $token" } `
-  -ContentType "application/json" -Body '{"title":"テスト","author":"作者"}'
+# トークン付きでコレクションを取得
+Invoke-RestMethod "$base/collection" -Headers @{ Authorization = "Bearer $token" }
 ```
 
 > トークンには有効期限（デフォルト1時間）がある。切れたら再度 `initiate-auth` で取り直す。

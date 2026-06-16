@@ -8,11 +8,6 @@ output "api_base_url" {
   value       = aws_apigatewayv2_stage.default.invoke_url
 }
 
-output "table_name" {
-  description = "DynamoDB table name (legacy comics demo)"
-  value       = aws_dynamodb_table.comics.name
-}
-
 output "market_record_table_name" {
   description = "MarketRecord table name"
   value       = aws_dynamodb_table.market_record.name

@@ -1,0 +1,3 @@
+# Lambda のビルド成果物と依存
+lambda/node_modules/
+lambda/dist/

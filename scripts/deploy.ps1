@@ -8,6 +8,20 @@ param(
 
 $ErrorActionPreference = "Stop"
 $tfDir = Join-Path $PSScriptRoot "..\terraform"
+$lambdaDir = Join-Path $PSScriptRoot "..\lambda"
+
+# Lambda(TypeScript) を dist/index.mjs にビルドしてから apply する。
+# terraform の archive_file は lambda/dist を zip するため、先にビルドが必要。
+Write-Host "=== build lambda (esbuild -> dist/index.mjs) ===" -ForegroundColor Cyan
+Push-Location $lambdaDir
+try {
+  if (-not (Test-Path (Join-Path $lambdaDir "node_modules"))) {
+    npm ci
+  }
+  npm run build
+} finally {
+  Pop-Location
+}
 
 Write-Host "=== [$Environment] terraform init ===" -ForegroundColor Cyan
 terraform -chdir="$tfDir" init -input=false

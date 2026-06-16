@@ -3,6 +3,6 @@ locals {
   # デプロイは `terraform workspace select dev|prod` で切り替える。
   environment = terraform.workspace
 
-  # 各リソース名に付けるサフィックス（例: secondary-comics-comics-dev）。
+  # 各リソース名に付けるサフィックス（例: secondary-comics-app-dev）。
   name_suffix = "-${local.environment}"
 }
