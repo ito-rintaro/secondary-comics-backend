@@ -45,7 +45,7 @@ resource "aws_dynamodb_table" "market_record" {
 # --- app: 単一テーブル設計。User / Collection / Price をまとめて管理 ---
 # 汎用キー(PK/SK)に型プレフィックスを付けて1テーブルに同居させる。
 #   User       : PK="USER#<userId>"   SK="PROFILE"
-#   Collection : PK="USER#<userId>"   SK="ITEM#<itemId>"
+#   Collection : PK="USER#<userId>"   SK="COLLECTION#<itemId>"
 #   Price      : PK="PRICE#<priceId>" SK="<YYYY-MM>"
 resource "aws_dynamodb_table" "app" {
   name         = "${var.project_name}-app${local.name_suffix}"

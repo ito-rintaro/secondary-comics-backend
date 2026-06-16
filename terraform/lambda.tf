@@ -41,7 +41,10 @@ resource "aws_iam_role_policy" "dynamodb" {
         "dynamodb:Scan",
         "dynamodb:Query",
       ]
-      Resource = [aws_dynamodb_table.comics.arn]
+      Resource = [
+        aws_dynamodb_table.comics.arn,
+        aws_dynamodb_table.app.arn,
+      ]
     }]
   })
 }
@@ -57,7 +60,8 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      TABLE_NAME = aws_dynamodb_table.comics.name
+      TABLE_NAME     = aws_dynamodb_table.comics.name
+      APP_TABLE_NAME = aws_dynamodb_table.app.name
     }
   }
 

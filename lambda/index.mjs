@@ -7,11 +7,14 @@ import {
   PutCommand,
   DeleteCommand,
   ScanCommand,
+  QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const TABLE = process.env.TABLE_NAME;
+// 単一テーブル app（User / Collection / Price を同居）。
+const APP_TABLE = process.env.APP_TABLE_NAME;
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -26,51 +29,14 @@ const json = (statusCode, body) => ({
 const getUserId = (event) =>
   event.requestContext?.authorizer?.jwt?.claims?.sub ?? null;
 
-// DB 実装前の疎通確認用のダミーデータ。
-// 本来は Cognito の sub でユーザーごとに絞り込むが、今は誰がアクセスしても
-// この同じ配列を返す（openapi.yaml の CollectionItem スキーマに準拠）。
-const SAMPLE_COLLECTION = [
-  {
-    id: "seed0",
-    title: "AKIRA 全6巻 初版帯付セット",
-    author: "大友克洋",
-    publisher: "講談社 / KCデラックス",
-    volume: "全6巻",
-    year: "1984",
-    condition: "A",
-    qty: 1,
-    cost: 8000,
-    market: 35000,
-    marketSource: "manual",
-    flags: { firstEd: true, obi: true, special: false },
-    purchaseDate: "",
-    store: "まんだらけ",
-    location: "本棚A",
-    memo: "初版・帯揃い。背ヤケ少なめ。",
-    imageUrl: "",
-    updatedAt: 1718000000000,
-  },
-  {
-    id: "seed4",
-    title: "鬼滅の刃 第1巻 初版",
-    author: "吾峠呼世晴",
-    publisher: "集英社 / ジャンプコミックス",
-    volume: "第1巻",
-    year: "2016",
-    condition: "S",
-    qty: 2,
-    cost: 1500,
-    market: 9000,
-    marketSource: "manual",
-    flags: { firstEd: true, obi: true, special: false },
-    purchaseDate: "",
-    store: "ヤフオク",
-    location: "防湿庫",
-    memo: "初版帯付き2冊保有。値上がり中。",
-    imageUrl: "",
-    updatedAt: 1718000004000,
-  },
-];
+// app テーブルの Collection レコードを API レスポンス（CollectionItem）に変換する。
+// 保存形は { PK:"USER#<sub>", SK:"COLLECTION#<id>", data:{...CollectionItem(id 以外)} }。
+// id は SK から "COLLECTION#" を外して取り出し、残りは data をそのまま展開する。
+const COLLECTION_PREFIX = "COLLECTION#";
+const toCollectionItem = (rec) => ({
+  id: rec.SK.slice(COLLECTION_PREFIX.length),
+  ...rec.data,
+});
 
 export const handler = async (event) => {
   const route = event.routeKey; // e.g. "GET /comics/{id}"
@@ -99,11 +65,19 @@ export const handler = async (event) => {
         const userId = getUserId(event);
         if (!userId) return json(401, { message: "Unauthorized" });
 
-        // DB 未実装のため、今はどのユーザーでも同じ固定配列を返す（疎通確認用）。
-        // userId は取得済みなので、DynamoDB 実装後はこの userId で
-        // ユーザーのアイテムだけを Query して返すよう差し替える。
-        console.log("listCollection for userId:", userId);
-        return json(200, SAMPLE_COLLECTION);
+        // app テーブルから PK="USER#<sub>" かつ SK が "COLLECTION#" で始まる
+        // Collection レコードだけを取得する（PROFILE 等は除外される）。
+        const res = await ddb.send(
+          new QueryCommand({
+            TableName: APP_TABLE,
+            KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+            ExpressionAttributeValues: {
+              ":pk": `USER#${userId}`,
+              ":sk": COLLECTION_PREFIX,
+            },
+          }),
+        );
+        return json(200, (res.Items ?? []).map(toCollectionItem));
       }
 
       case "GET /comics": {
