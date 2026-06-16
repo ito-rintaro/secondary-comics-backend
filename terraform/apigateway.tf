@@ -3,8 +3,12 @@ resource "aws_apigatewayv2_api" "http" {
   protocol_type = "HTTP"
 
   # ブラウザ(別オリジン)から呼べるようにする。
+  # var.allowed_origins（localhost 等）に加え、フロントを配信している
+  # S3 バケットのオリジンを環境ごとに自動で許可する。
   cors_configuration {
-    allow_origins = var.allowed_origins
+    allow_origins = concat(var.allowed_origins, [
+      "https://${var.project_name}-web${local.name_suffix}.s3.${var.region}.amazonaws.com",
+    ])
     allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers = ["authorization", "content-type"]
     max_age       = 3600

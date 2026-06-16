@@ -223,11 +223,14 @@ export default function ComicsPage() {
 ブラウザは別オリジンから API を呼ぶ前にプリフライト（OPTIONS）で許可を確認する。
 HTTP API に CORS 設定を追加済み:
 
-- 許可オリジン: `http://localhost:5173`（Vite 既定。本番ドメインは後述の手順で追加）
+- 許可オリジン:
+  - `http://localhost:5173`（Vite 既定）
+  - `https://<project>-web-<env>.s3.<region>.amazonaws.com`（フロント配信用 S3。環境ごとに自動許可。dev は `https://secondary-comics-web-dev.s3.ap-northeast-1.amazonaws.com`）
 - 許可メソッド: `GET, POST, PUT, DELETE, OPTIONS`
 - 許可ヘッダ: `authorization, content-type`
 
-> 別のポートやドメインで開発・公開する場合は、`terraform/variables.tf` の
+> S3 配信オリジンは API Gateway 側でバケット名規則から自動許可している。
+> CloudFront や独自ドメインなど別オリジンで公開する場合は、`terraform/variables.tf` の
 > `allowed_origins` にオリジンを追加して `terraform apply` する。
 
 ### ② Amplify 用の認証フロー（SRP） ✅ 対応済み
