@@ -93,7 +93,7 @@ API は読み取り専用（GET のみ）なので、データは DynamoDB へ�
 |---|---|
 | `PK` | `USER#<Cognito の sub>` |
 | `SK` | `COLLECTION#<コレクションの id>` |
-| `data` | `CollectionItem` の **`id` 以外**のフィールド（`title` / `author` / `publisher` / `volume` / `year` / `condition` / `qty` / `cost` / `market` / `marketSource` / `flags` / `purchaseDate` / `store` / `location` / `memo` / `imageUrl` / `updatedAt`） |
+| `data` | `CollectionItem` の **`id` 以外**のフィールド（`title` / `author` / `publisher` / `volume` / `year` / `condition` / `qty` / `cost` / `market` / `marketSource` / `flags` / `purchaseDate` / `store` / `location` / `memo` / `imageUrl` / `updatedAt`）。`imageUrl` の値の規約は [画像（S3 + CloudFront）](#画像s3--cloudfront) を参照 |
 
 > `id` はレコードには持たせず、`SK` の `COLLECTION#` を除いた値がそのまま API の `id` になる。
 > `<sub>` は対象ユーザーの Cognito `sub`（`aws cognito-idp admin-get-user ...` の `sub` 属性で確認）。
@@ -163,6 +163,7 @@ API は読み取り専用（GET のみ）なので、データは DynamoDB へ�
 | `price` | 現在価格（円）。`history` の末尾と一致 |
 | `change` | 期間変化率 `(末尾 - 先頭) / 先頭`（例: `0.18`） |
 | `listedAt` | 新着ソート用の数値（大きいほど新しい。GSI `byNew` のキー） |
+| `imageUrl` | 画像の S3 オブジェクトキー（**ファイル名のみ**。例 `xxx.jpg`。空文字/未設定可） → [画像（S3 + CloudFront）](#画像s3--cloudfront) |
 
 AWS CLI での投入例（`<Market テーブル名>` は `terraform output market_record_table_name`）:
 
@@ -186,12 +187,42 @@ aws dynamodb put-item --table-name $mr --item (@'
   ]},
   "price":          {"N": "35400"},
   "change":         {"N": "0.18"},
-  "listedAt":       {"N": "0"}
+  "listedAt":       {"N": "0"},
+  "imageUrl":       {"S": "619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg"}
 }
 '@ -replace '\r','')
 ```
 
 > `gsiPk` を付け忘れると `byNew` GSI に載らず、`GET /market` の結果に出てこないので注意。
+
+## 画像（S3 + CloudFront）
+
+コレクション / マーケットの `imageUrl` 用の画像は、専用の S3 バケットに置き、
+**CloudFront 経由**でフロントに配信する（バケット自体は非公開。OAC で CloudFront からのみ読める）。
+Terraform 定義は `terraform/assets.tf`。
+
+| 項目 | 値（dev） | 取得 |
+|---|---|---|
+| S3 バケット（アップロード先） | `secondary-comics-assets-dev-<アカウントID>` | `terraform output assets_bucket_name` |
+| 配信ドメイン（フロントが参照） | `<distribution>.cloudfront.net` | `terraform output assets_cdn_domain` |
+
+### `imageUrl` の値の規約
+
+- DynamoDB に入れる `imageUrl` は**ファイル名のみ**（例 `akira_vol1.jpg`）。`images/` やドメインは含めない。
+- S3 へは **`images/<ファイル名>`** のキーでアップロードする。
+- フロントが配信ドメイン + `/images/` を前置して `https://<cdn>/images/<ファイル名>` を組み立てて表示する。
+- 未設定・空文字可。サーバーは未設定なら `imageUrl: ""` を返す（API は壊れない）。
+- ファイル名は URL エンコードを避けるため英数字・ハイフン・アンダースコア推奨。
+
+```powershell
+$bucket = (terraform -chdir=terraform output -raw assets_bucket_name)
+# 画像を images/ プレフィックスでアップロード
+aws s3 cp .\akira_vol1.jpg "s3://$bucket/images/akira_vol1.jpg"
+# 差し替え時にキャッシュが残る場合は CloudFront を無効化（distribution id は AWS コンソール参照）
+# aws cloudfront create-invalidation --distribution-id <ID> --paths "/images/akira_vol1.jpg"
+```
+
+> 直接の S3 URL（`...s3.amazonaws.com/...`）は 403。必ず CloudFront ドメインで参照する。
 
 ### 設計テーブルへのテストデータ投入（MarketRecord + 単一テーブル app）
 

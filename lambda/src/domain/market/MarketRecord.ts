@@ -17,4 +17,5 @@ export interface MarketRecord {
   price: number; // 現在価格（円）。history の末尾と一致
   change: number; // 期間変化率 (末尾 - 先頭) / 先頭
   listedAt: number; // 新着ソート用の連番（大きいほど新しい）
+  imageUrl: string; // 画像の S3 オブジェクトキー（ファイル名のみ。空文字可）
 }
