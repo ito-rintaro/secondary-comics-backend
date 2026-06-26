@@ -48,19 +48,24 @@ DynamoDB 依存は `adapters/persistence/dynamo` に閉じ込めてあり、保�
 
 ## 前提ツールのインストール（初回のみ）
 
-この環境には terraform / aws CLI が未インストール。Windows なら:
+この環境には terraform / aws CLI / Node.js が未インストール。Windows なら:
 
 ```powershell
 # winget を使う場合
 winget install Hashicorp.Terraform
 winget install Amazon.AWSCLI
+winget install OpenJS.NodeJS.LTS   # Node.js 22（Lambda のビルドに必要）
 ```
+
+> `deploy.ps1` は内部で `npm ci` / `npm run build`（esbuild）を実行するため、
+> Node.js（v22 系）が必須。
 
 インストール後、ターミナルを開き直して確認:
 
 ```powershell
 terraform version
 aws --version
+node --version
 ```
 
 ## AWS 認証情報の設定（初回のみ）
