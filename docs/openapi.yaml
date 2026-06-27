@@ -182,9 +182,10 @@ components:
         imageUrl:
           type: string
           description: |
-            画像。現状はフロントで dataURL を保持。
-            将来はオブジェクトストレージ（S3）の URL に変更予定。空文字可。
-          example: ''
+            画像の S3 オブジェクトキー（ファイル名のみ。例: "xxx.jpg"）。
+            実体は CloudFront 配下の images/ に置かれ、フロントが
+            CloudFront ドメイン + "/images/" を前置して表示する。空文字可。
+          example: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
         updatedAt:
           type: integer
           format: int64
@@ -236,6 +237,7 @@ components:
         - price
         - change
         - listedAt
+        - imageUrl
       properties:
         id:
           type: string
@@ -289,6 +291,13 @@ components:
           format: int64
           description: 新着ソート用の連番（大きいほど新しい）。
           example: 0
+        imageUrl:
+          type: string
+          description: |
+            画像の S3 オブジェクトキー（ファイル名のみ。例: "xxx.jpg"）。
+            実体は CloudFront 配下の images/ に置かれ、フロントが
+            CloudFront ドメイン + "/images/" を前置して表示する。空文字可。
+          example: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
 
     Error:
       type: object
@@ -318,7 +327,7 @@ components:
           store: まんだらけ
           location: 本棚A
           memo: 初版・帯揃い。背ヤケ少なめ。
-          imageUrl: ''
+          imageUrl: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
           updatedAt: 1718000000000
         - id: seed4
           title: 鬼滅の刃 第1巻 初版
@@ -336,7 +345,7 @@ components:
           store: ヤフオク
           location: 防湿庫
           memo: 初版帯付き2冊保有。値上がり中。
-          imageUrl: ''
+          imageUrl: 7c2a90b4de135_4f8e21a6c3b97d05ef6172a4b8c9e30d.jpg
           updatedAt: 1718000004000
 
     MarketList:
@@ -354,6 +363,7 @@ components:
           price: 35400
           change: 0.18
           listedAt: 0
+          imageUrl: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
         - id: mk1
           title: 幽☆遊☆白書 直筆サイン入り 第1巻
           author: 冨樫義博
@@ -366,3 +376,4 @@ components:
           price: 67600
           change: 0.3
           listedAt: 1
+          imageUrl: 7c2a90b4de135_4f8e21a6c3b97d05ef6172a4b8c9e30d.jpg

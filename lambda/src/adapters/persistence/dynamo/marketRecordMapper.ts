@@ -21,6 +21,7 @@ export interface MarketRecordRow {
   price: number;
   change: number;
   listedAt: number;
+  imageUrl?: string; // 旧レコードには無い場合があるため optional
 }
 
 // テーブルの 1 行 → MarketRecord（API/ドメインの形）。
@@ -38,4 +39,5 @@ export const toMarketRecord = (row: MarketRecordRow): MarketRecord => ({
   price: row.price,
   change: row.change,
   listedAt: row.listedAt,
+  imageUrl: row.imageUrl ?? "", // 未保存なら空文字（contract の required を満たす）
 });

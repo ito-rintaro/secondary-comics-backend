@@ -16,6 +16,7 @@ export const userPk = (userId: string): string => `USER#${userId}`;
 // {PK,SK,data} → CollectionItem。
 // id は SK から COLLECTION# を外して得る（id はレコードに持たせない）。
 export const toCollectionItem = (rec: CollectionRecord): CollectionItem => ({
-  id: rec.SK.slice(COLLECTION_PREFIX.length),
   ...rec.data,
+  id: rec.SK.slice(COLLECTION_PREFIX.length),
+  imageUrl: rec.data.imageUrl ?? "", // 旧レコード(imageUrl 未保存)でも contract を満たす既定値
 });

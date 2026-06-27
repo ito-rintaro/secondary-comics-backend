@@ -27,3 +27,13 @@ output "cognito_client_id" {
   description = "Cognito App Client ID (USER_PASSWORD_AUTH に使う)"
   value       = aws_cognito_user_pool_client.main.id
 }
+
+output "assets_bucket_name" {
+  description = "FE 画像格納用 S3 バケット名（アップロード先）"
+  value       = aws_s3_bucket.assets.bucket
+}
+
+output "assets_cdn_domain" {
+  description = "画像配信用 CloudFront ドメイン（FE はこのドメインで画像を参照する）"
+  value       = aws_cloudfront_distribution.assets.domain_name
+}
