@@ -5,8 +5,9 @@ info:
   version: 0.1.0
   description: |
     二次流通コミックの資産管理アプリのバックエンド API。
-    「My コレクション」の取得（GET /collection）と
-    「マーケット相場」の取得（GET /market）を定義する。
+    「My コレクション」の取得（GET /collection）、
+    「マーケット相場」の取得（GET /market）、
+    「カタログ（書誌マスタ）」の取得（GET /catalogs）を定義する。
     コレクションの登録・編集・削除（save / delete）は今回スコープ外。
 
 servers:
@@ -73,6 +74,37 @@ paths:
               examples:
                 sample:
                   $ref: '#/components/examples/MarketList'
+        '401':
+          description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /catalogs:
+    get:
+      operationId: listCatalogs
+      summary: カタログ（書誌マスタ）の一覧を取得
+      description: |
+        Collection / MarketRecord が catalogId で参照する書誌マスタ（Catalog）を
+        配列で返す。マーケット同様、全ユーザー共通（グローバル）のデータで、
+        sub による絞り込みは行わない。全件が単一パーティション（PK="CATALOG"）に
+        束ねられており、Query 1 回で取得する（クエリパラメータなし）。
+      tags: [catalog]
+      security:
+        - cognito: []
+      responses:
+        '200':
+          description: カタログの配列（0 件なら空配列）
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Catalog'
+              examples:
+                sample:
+                  $ref: '#/components/examples/CatalogList'
         '401':
           description: 未認証（トークンが無い／無効）
           content:
@@ -299,6 +331,54 @@ components:
             CloudFront ドメイン + "/images/" を前置して表示する。空文字可。
           example: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
 
+    # 書誌マスタ（Catalog）1 件。Collection / MarketRecord が catalogId で参照する hub。
+    # フロントの domain/catalog/Catalog.ts と一致させる。
+    Catalog:
+      type: object
+      required:
+        - id
+        - title
+        - author
+        - publisher
+        - volume
+        - year
+        - flags
+        - imageUrl
+      properties:
+        id:
+          type: string
+          description: カタログ識別子（システム生成。cat-xxx）
+          example: cat-001
+        title:
+          type: string
+          description: 作品名
+          example: AKIRA 全6巻 初版帯付セット
+        author:
+          type: string
+          description: 著者
+          example: 大友克洋
+        publisher:
+          type: string
+          description: 出版社 / レーベル
+          example: 講談社 / KCデラックス
+        volume:
+          type: string
+          description: 巻数（"全6巻" "第1巻" 等の自由文字列）
+          example: 全6巻
+        year:
+          type: string
+          description: 発行年（文字列）
+          example: '1984'
+        flags:
+          $ref: '#/components/schemas/ConditionFlags'
+        imageUrl:
+          type: string
+          description: |
+            画像の S3 オブジェクトキー（ファイル名のみ。例: "xxx.jpg"）。
+            実体は CloudFront 配下の images/ に置かれ、フロントが
+            CloudFront ドメイン + "/images/" を前置して表示する。空文字可。
+          example: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
+
     Error:
       type: object
       required: [message]
@@ -377,3 +457,23 @@ components:
           change: 0.3
           listedAt: 1
           imageUrl: 7c2a90b4de135_4f8e21a6c3b97d05ef6172a4b8c9e30d.jpg
+
+    CatalogList:
+      summary: 2 件のカタログ例
+      value:
+        - id: cat-001
+          title: AKIRA 全6巻 初版帯付セット
+          author: 大友克洋
+          publisher: 講談社 / KCデラックス
+          volume: 全6巻
+          year: '1984'
+          flags: { firstEd: true, obi: true, special: false }
+          imageUrl: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
+        - id: cat-002
+          title: 鋼鉄都市クロニクル
+          author: 黒崎陣
+          publisher: メカニカ書房
+          volume: '3'
+          year: '2021'
+          flags: { firstEd: true, obi: false, special: true }
+          imageUrl: ''

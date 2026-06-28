@@ -1,5 +1,6 @@
 import {
   BatchGetCommand,
+  QueryCommand,
   type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
 import type { Catalog } from "../../../domain/catalog/Catalog";
@@ -50,5 +51,27 @@ export class DynamoCatalogRepository implements CatalogRepository {
       }
     }
     return result;
+  }
+
+  // 全 Catalog を取得する。全件が PK="CATALOG" の単一パーティションに束ねられて
+  // いるので、その PK を Query すれば Scan なしで取得できる（1MB 超はページング）。
+  async listAll(): Promise<Catalog[]> {
+    const items: Catalog[] = [];
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.ddb.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: "PK = :pk",
+          ExpressionAttributeValues: { ":pk": CATALOG_PK },
+          ExclusiveStartKey,
+        }),
+      );
+      for (const item of res.Items ?? []) {
+        items.push(toCatalog(item as CatalogRecord));
+      }
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return items;
   }
 }
