@@ -1,17 +1,17 @@
 import type { CollectionItem } from "../../../domain/collection/CollectionItem";
 import type { Condition } from "../../../domain/collection/Condition";
 import type { MarketSource } from "../../../domain/collection/MarketSource";
-import type { Product } from "../../../domain/product/Product";
+import type { Catalog } from "../../../domain/catalog/Catalog";
 
 // app テーブル（単一テーブル）における Collection の保存形。
 //   PK="USER#<sub>"  SK="COLLECTION#<id>"  data={...所有インスタンス固有情報}
-// 書誌情報（title/author/publisher/volume/year/flags/imageUrl）は Product マスタへ
-// 正規化済みで、ここでは持たず productId で参照する。
+// 書誌情報（title/author/publisher/volume/year/flags/imageUrl）は Catalog マスタへ
+// 正規化済みで、ここでは持たず catalogId で参照する。
 export const COLLECTION_PREFIX = "COLLECTION#";
 
-// 所有インスタンス固有の保存ペイロード。Product の書誌は含めない。
+// 所有インスタンス固有の保存ペイロード。Catalog の書誌は含めない。
 export interface CollectionData {
-  productId: string; // 参照する Product
+  catalogId: string; // 参照する Catalog
   condition: Condition; // 状態ランク（この個体の状態）
   qty: number; // 所有数
   cost: number; // 取得価格（1 点あたり・円）
@@ -33,22 +33,22 @@ export interface CollectionRecord {
 // userId → PK 文字列。
 export const userPk = (userId: string): string => `USER#${userId}`;
 
-// {PK,SK,data} + 参照先 Product → CollectionItem（API/ドメインの形）。
-// 書誌情報は Product から、固有情報は data から合成する（サーバ側 join）。
+// {PK,SK,data} + 参照先 Catalog → CollectionItem（API/ドメインの形）。
+// 書誌情報は Catalog から、固有情報は data から合成する（サーバ側 join）。
 // id は SK から COLLECTION# を外して得る（id はレコードに持たせない）。
 export const toCollectionItem = (
   rec: CollectionRecord,
-  product: Product,
+  catalog: Catalog,
 ): CollectionItem => ({
   id: rec.SK.slice(COLLECTION_PREFIX.length),
-  // --- Product 由来（カタログの型）---
-  title: product.title,
-  author: product.author,
-  publisher: product.publisher,
-  volume: product.volume,
-  year: product.year,
-  flags: product.flags,
-  imageUrl: product.imageUrl,
+  // --- Catalog 由来（カタログの型）---
+  title: catalog.title,
+  author: catalog.author,
+  publisher: catalog.publisher,
+  volume: catalog.volume,
+  year: catalog.year,
+  flags: catalog.flags,
+  imageUrl: catalog.imageUrl,
   // --- 所有インスタンス固有 ---
   condition: rec.data.condition,
   qty: rec.data.qty,

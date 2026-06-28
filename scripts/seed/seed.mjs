@@ -1,4 +1,4 @@
-// Seed test data into the design tables (Product / Collection / MarketRecord).
+// Seed test data into the design tables (Catalog / Collection / MarketRecord).
 // Writes directly to DynamoDB via the AWS SDK (plain JS objects are auto-marshalled).
 // Table names are resolved from `terraform output` for the currently selected workspace.
 //
@@ -22,7 +22,7 @@ const out = JSON.parse(
 );
 const T = {
   market: out.market_record_table_name.value,
-  app: out.app_table_name.value, // single table: Product / Collection（USER# 配下）
+  app: out.app_table_name.value, // single table: Catalog / Collection（USER# 配下）
 };
 console.log("Target tables:", T);
 
@@ -60,22 +60,22 @@ const books = [
 
 const months = lastNMonths(12);
 
-const productItems = [];
+const catalogItems = [];
 const marketItems = [];
 
 books.forEach((b, i) => {
   const suffix = String(i + 1).padStart(3, "0");
-  const productId = `prod-${suffix}`;
+  const catalogId = `cat-${suffix}`;
   const marketRecordId = `mr-${suffix}`;
 
-  // Product: 書誌のマスタ（型）。Collection / Market はこれを productId で参照する。
-  // item-collection 型キー: PK="PRODUCT"(固定), SK="PRODUCT#<id>"
-  // → PK="PRODUCT" を Query すれば全 Product を1発取得できる。
-  productItems.push({
-    PK: "PRODUCT",
-    SK: `PRODUCT#${productId}`,
+  // Catalog: 書誌のマスタ（型）。Collection / Market はこれを catalogId で参照する。
+  // item-collection 型キー: PK="CATALOG"(固定), SK="CATALOG#<id>"
+  // → PK="CATALOG" を Query すれば全 Catalog を1発取得できる。
+  catalogItems.push({
+    PK: "CATALOG",
+    SK: `CATALOG#${catalogId}`,
     data: {
-      entityType: "Product",
+      entityType: "Catalog",
       title: b.title,
       author: b.author,
       publisher: b.publisher,
@@ -98,11 +98,11 @@ books.forEach((b, i) => {
   const change = Number(((last - first) / first).toFixed(4));
   const listedAt = now - i * 86_400_000; // stagger by day for byNew sorting
 
-  // MarketRecord: 出品固有の価格情報。書誌は Product を productId で参照（正規化）。
+  // MarketRecord: 出品固有の価格情報。書誌は Catalog を catalogId で参照（正規化）。
   // 価格推移は history(12要素) を行に直接埋め込む。gsiPk が byNew / byPrice GSI の束ね。
   marketItems.push({
     marketRecordId,
-    productId,
+    catalogId,
     seller: b.seller,
     condition: b.condition,
     price: last,
@@ -113,7 +113,7 @@ books.forEach((b, i) => {
   });
 });
 
-// Collection: the test user owns the first few books. 書誌は Product を参照（正規化）。
+// Collection: the test user owns the first few books. 書誌は Catalog を参照（正規化）。
 // 所有インスタンス固有情報（状態 / 数量 / 取得価格 / 購入情報）だけを持つ。
 // single table key: PK="USER#<userId>", SK="COLLECTION#<itemId>"
 const collectionItems = books.slice(0, 4).map((b, i) => {
@@ -127,7 +127,7 @@ const collectionItems = books.slice(0, 4).map((b, i) => {
       entityType: "CollectionItem",
       userId: USER_ID,
       itemId,
-      productId: `prod-${suffix}`,
+      catalogId: `cat-${suffix}`,
       condition: b.condition,
       qty: i + 1,
       cost: Math.round(market * 0.7),
@@ -160,6 +160,6 @@ async function batchPut(table, items) {
 
 console.log("Seeding...");
 await batchPut(T.market, marketItems);
-// Product / Collection（USER# パーティション配下）は単一 app テーブルに同居。
-await batchPut(T.app, [...productItems, ...collectionItems]);
+// Catalog / Collection（USER# パーティション配下）は単一 app テーブルに同居。
+await batchPut(T.app, [...catalogItems, ...collectionItems]);
 console.log("Done.");
