@@ -6,4 +6,6 @@ import type { Catalog } from "../../domain/catalog/Catalog";
 export interface CatalogRepository {
   // 指定 id の Catalog を id→Catalog の Map で返す。存在しない id は含めない。
   getMany(ids: string[]): Promise<Map<string, Catalog>>;
+  // 全 Catalog を返す（PK="CATALOG" の 1 パーティションを Query で走査）。
+  listAll(): Promise<Catalog[]>;
 }

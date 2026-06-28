@@ -40,6 +40,7 @@ locals {
   routes = [
     "GET /collection",
     "GET /market",
+    "GET /catalogs",
   ]
 }
 

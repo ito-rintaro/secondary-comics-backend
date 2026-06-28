@@ -166,6 +166,24 @@ curl.exe "$base/market"
 Invoke-RestMethod "$base/market" -Headers @{ Authorization = "Bearer $token" }
 ```
 
+### カタログ取得（`GET /catalogs` / 認証必須）
+
+`openapi.yaml` 準拠のエンドポイント。Collection / MarketRecord が `catalogId` で参照する
+書誌マスタ（Catalog）を**生の配列**で返す。マーケット同様 **全ユーザー共通（グローバル）**
+で `sub` 絞り込みは行わない。全件が単一パーティション（`PK="CATALOG"`）に束ねられている
+ため、**Query 1 回**で取得する（Scan 不要）。
+
+```powershell
+$base = "<API_URL>"
+# トークン無し → 401 Unauthorized
+curl.exe "$base/catalogs"
+# トークン付き → 200 + Catalog の配列（全ユーザー共通）
+Invoke-RestMethod "$base/catalogs" -Headers @{ Authorization = "Bearer $token" }
+```
+
+> Catalog の手動投入は前述「コレクションを手動で投入する」の
+> **Catalog マスタ投入例**（`PK="CATALOG"` / `SK="CATALOG#<id>"`）を参照。
+
 #### マーケット相場を手動で投入する（market-record テーブル）
 
 API は読み取り専用（GET のみ）なので、データは DynamoDB へ直接入れる。

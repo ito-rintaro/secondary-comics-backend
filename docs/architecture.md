@@ -37,10 +37,11 @@ lambda/
 │  │  ├─ ports/
 │  │  │  ├─ CollectionRepository.ts … listByUser(userId): Promise<CollectionItem[]>
 │  │  │  ├─ MarketRepository.ts    … listAll(): Promise<MarketRecord[]>
-│  │  │  └─ CatalogRepository.ts   … getMany(ids): Promise<Map<id, Catalog>>
+│  │  │  └─ CatalogRepository.ts   … getMany(ids)（join 用）/ listAll()（一覧 用）
 │  │  └─ usecases/
 │  │     ├─ ListCollection.ts      … repo を呼んで一覧を返す（AWS非依存）
-│  │     └─ ListMarket.ts          … repo を呼んで相場一覧を返す（AWS非依存）
+│  │     ├─ ListMarket.ts          … repo を呼んで相場一覧を返す（AWS非依存）
+│  │     └─ ListCatalog.ts         … repo を呼んでカタログ一覧を返す（AWS非依存）
 │  │
 │  ├─ adapters/                    … 内と外の変換層
 │  │  ├─ http/                     … 入力アダプタ（API Gateway 側）
@@ -48,6 +49,7 @@ lambda/
 │  │  │  ├─ extractUserId.ts       … event の JWT claims から sub を取り出す
 │  │  │  ├─ CollectionController.ts … event → usecase → HTTP応答
 │  │  │  ├─ MarketController.ts     … event → usecase → HTTP応答（userId 不要）
+│  │  │  ├─ CatalogController.ts    … event → usecase → HTTP応答（userId 不要）
 │  │  │  └─ router.ts              … routeKey → controller のディスパッチ
 │  │  └─ persistence/dynamo/       … 出力アダプタ（DynamoDB 側）
 │  │     ├─ dynamoClient.ts        … DocumentClient 生成
@@ -135,8 +137,9 @@ Catalog である程度「型」が決まっているので、固有情報だけ
 従来どおり書誌入りの `CollectionItem` / `MarketRecord` を組み立てて返す。
 参照先 Catalog が無い行は空プレースホルダ（`emptyCatalog`）で contract を満たす。
 
-> このフェーズは正規化基盤と読み取り（join）まで。Catalog / Collection を作成する
-> write エンドポイント（`POST /catalogs` 等）は次フェーズで追加する。
+> Catalog 一覧の読み取りは `GET /catalogs`（`PK="CATALOG"` の Query で全件取得・
+> `ListCatalog` → `CatalogRepository.listAll`）で提供する。
+> Catalog / Collection を作成する write エンドポイント（`POST /catalogs` 等）は次フェーズ。
 
 ## 拡張のしかた（将来の save / delete）
 

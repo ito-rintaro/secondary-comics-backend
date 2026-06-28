@@ -9,8 +9,10 @@ import { DynamoMarketRepository } from "./adapters/persistence/dynamo/DynamoMark
 import { DynamoCatalogRepository } from "./adapters/persistence/dynamo/DynamoCatalogRepository";
 import { ListCollection } from "./application/usecases/ListCollection";
 import { ListMarket } from "./application/usecases/ListMarket";
+import { ListCatalog } from "./application/usecases/ListCatalog";
 import { CollectionController } from "./adapters/http/CollectionController";
 import { MarketController } from "./adapters/http/MarketController";
+import { CatalogController } from "./adapters/http/CatalogController";
 import { Router } from "./adapters/http/router";
 import { json } from "./adapters/http/httpResponse";
 
@@ -35,7 +37,14 @@ const marketRepo = new DynamoMarketRepository(
 );
 const listMarket = new ListMarket(marketRepo);
 const marketController = new MarketController(listMarket);
-const router = new Router(collectionController, marketController);
+// Catalog 一覧は catalogRepo を再利用（PK="CATALOG" の Query で全件取得）。
+const listCatalog = new ListCatalog(catalogRepo);
+const catalogController = new CatalogController(listCatalog);
+const router = new Router(
+  collectionController,
+  marketController,
+  catalogController,
+);
 
 export const handler = async (
   event: APIGatewayProxyEventV2WithJWTAuthorizer,
