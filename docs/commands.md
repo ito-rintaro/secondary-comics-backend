@@ -82,7 +82,8 @@ Invoke-RestMethod "$base/collection" -Headers @{ Authorization = "Bearer $token"
 ```
 
 サーバーは `app` テーブルを `PK = "USER#<sub>"` かつ `begins_with(SK, "COLLECTION#")` で Query し、
-各レコードを `id`（= SK から `COLLECTION#` を除いた値）＋ `data` の中身に展開して返す。
+各レコードに **Catalog（書誌）と現在相場（マーケット）を合成**して `CollectionItem` を返す
+（`id` は SK から `COLLECTION#` を除いた値。`market` は保存値ではなく算出値）。
 
 ### コレクション作成（`POST /collection` / 認証必須）
 
@@ -90,28 +91,29 @@ Invoke-RestMethod "$base/collection" -Headers @{ Authorization = "Bearer $token"
 書誌は `catalogId` で既存 Catalog を参照し、本文は所有インスタンス固有の情報だけを入れる
 （`id` と `updatedAt` はサーバが採番）。**`catalogId` と `condition` のみ必須**で、他は既定値で
 補完される。`catalogId` が実在しない場合は `400`。
+**現在相場（market / marketSource）は本文では受け取らない**——マーケットから導出するため。
 
 ```powershell
 $base = "<API_URL>"
 $body = @{
-  catalogId    = "cat-001"   # 実在する Catalog の id（GET /catalogs で確認）
-  condition    = "A"
-  qty          = 1
-  cost         = 8000
-  market       = 35000
-  marketSource = "manual"
-  store        = "まんだらけ"
-  location     = "本棚A"
-  memo         = "初版・帯揃い。"
+  catalogId = "cat-001"   # 実在する Catalog の id（GET /catalogs で確認）
+  condition = "A"
+  qty       = 1
+  cost      = 8000
+  store     = "まんだらけ"
+  location  = "本棚A"
+  memo      = "初版・帯揃い。"
 } | ConvertTo-Json
-# 201 + 作成された CollectionItem（Catalog を合成した enriched 形）
+# 201 + 作成された CollectionItem（Catalog と現在相場を合成した enriched 形）
 Invoke-RestMethod "$base/collection" -Method Post `
   -Headers @{ Authorization = "Bearer $token" } `
   -ContentType "application/json; charset=utf-8" -Body $body
 ```
 
-> 未指定時の既定値: `qty=1` / `cost=0` / `market=0` / `marketSource=manual` /
+> 未指定時の既定値: `qty=1` / `cost=0` /
 > `purchaseDate`・`store`・`location`・`memo` は空文字。
+> `market` は応答で算出される（その `catalogId` のマーケット相場。無ければ 0 /
+> `marketSource=estimate`、あれば 価格 / `marketSource=auto`）。
 
 #### コレクションを手動で投入する（app テーブル）
 
@@ -128,7 +130,7 @@ API は読み取り専用（GET のみ）なので、データは DynamoDB へ�
 |---|---|
 | `PK` | `USER#<Cognito の sub>` |
 | `SK` | `COLLECTION#<コレクションの id>` |
-| `data` | `catalogId`（参照する Catalog）＋ 固有情報（`condition` / `qty` / `cost` / `market` / `marketSource` / `purchaseDate` / `store` / `location` / `memo` / `updatedAt`） |
+| `data` | `catalogId`（参照する Catalog）＋ 固有情報（`condition` / `qty` / `cost` / `purchaseDate` / `store` / `location` / `memo` / `updatedAt`）。`market`/`marketSource` は保存しない（読み取り時に算出） |
 
 > `id` はレコードには持たせず、`SK` の `COLLECTION#` を除いた値がそのまま API の `id` になる。
 > 書誌・画像は、サーバが `catalogId` から Catalog を引いて合成し応答に載せる（サーバ側 join）。
@@ -167,8 +169,6 @@ aws dynamodb put-item --table-name $app --item (@'
     "condition":    {"S": "A"},
     "qty":          {"N": "1"},
     "cost":         {"N": "8000"},
-    "market":       {"N": "35000"},
-    "marketSource": {"S": "manual"},
     "purchaseDate": {"S": ""},
     "store":        {"S": "まんだらけ"},
     "location":     {"S": "本棚A"},

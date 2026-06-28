@@ -25,7 +25,7 @@ lambda/
 │  ├─ domain/                      … 純粋な型とルール（外部依存ゼロ）
 │  │  ├─ collection/
 │  │  │  ├─ CollectionItem.ts      … 所有品1件。openapi.yaml の CollectionItem と一致
-│  │  │  ├─ buildCollectionItem.ts … 所有インスタンス + Catalog → CollectionItem（純粋関数）
+│  │  │  ├─ buildCollectionItem.ts … 所有インスタンス + Catalog + 相場 → CollectionItem（純粋関数）
 │  │  │  ├─ Condition.ts           … S/A/B/C（market と共有）
 │  │  │  ├─ ConditionFlags.ts      … firstEd/obi/special（market と共有）
 │  │  │  └─ MarketSource.ts        … manual/auto/estimate
@@ -38,6 +38,7 @@ lambda/
 │  │  ├─ ports/
 │  │  │  ├─ CollectionRepository.ts … listByUser(userId) / create(userId, id, catalogId, instance)
 │  │  │  ├─ MarketRepository.ts    … listAll(): Promise<MarketRecord[]>
+│  │  │  ├─ MarketPriceRepository.ts … pricesByCatalog(ids): catalogId→現在相場（円）
 │  │  │  └─ CatalogRepository.ts   … getMany(ids)（join 用）/ listAll()（一覧 用）
 │  │  └─ usecases/
 │  │     ├─ ListCollection.ts      … repo を呼んで一覧を返す（AWS非依存）
@@ -61,7 +62,8 @@ lambda/
 │  │     ├─ marketRecordMapper.ts  … テーブル行 + Catalog → MarketRecord
 │  │     ├─ DynamoMarketRepository.ts … MarketRepository の実装（byNew GSI / Catalog を join）
 │  │     ├─ catalogRecordMapper.ts … {PK,SK,data} ⇄ Catalog（PK=CATALOG / SK=CATALOG#<id>）
-│  │     └─ DynamoCatalogRepository.ts … CatalogRepository の実装（BatchGetItem）
+│  │     ├─ DynamoCatalogRepository.ts … CatalogRepository の実装（BatchGetItem）
+│  │     └─ DynamoMarketPriceRepository.ts … catalogId→現在相場（market-record を集計）
 │  │
 │  ├─ config/
 │  │  └─ env.ts                    … 環境変数(APP_TABLE_NAME / MARKET_TABLE_NAME)の読み取りを一元化
@@ -160,8 +162,14 @@ Catalog である程度「型」が決まっているので、固有情報だけ
    IAM は `PutItem` が既に許可済みのため追加不要。
 
 `id` / 時刻はハンドラから注入する（`() => randomUUID()` / `() => Date.now()`）ので、
-ユースケースは決定的にテストできる。書誌×固有の合成は `buildCollectionItem`
+ユースケースは決定的にテストできる。書誌×固有×相場の合成は `buildCollectionItem`
 （ドメインの純粋関数）を読み取り・作成で共用する。
+
+> **現在相場（market）は Collection に保存しない。** 所有者が入力する値ではなく、
+> その `catalogId` のマーケット相場（`market-record`）から導出すべきものなので、
+> `POST /collection` の入力にも保存形にも含めない。読み取り（`GET /collection`）と
+> 作成応答の両方で `MarketPriceRepository.pricesByCatalog` から相場を引き、
+> 相場あり→`market`=価格 /`marketSource`=`auto`、相場なし→`0` /`estimate` を合成する。
 
 ## ビルド / デプロイ
 

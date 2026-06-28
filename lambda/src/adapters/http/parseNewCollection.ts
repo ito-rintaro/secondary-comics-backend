@@ -1,11 +1,10 @@
 import type { CreateCollectionInput } from "../../application/usecases/CreateCollection";
 import type { Condition } from "../../domain/collection/Condition";
-import type { MarketSource } from "../../domain/collection/MarketSource";
 
 // POST /collection のリクエストボディを検証して CreateCollectionInput に整える。
 // 必須: catalogId / condition。他は既定値で補完する（contract は AskUser で確定）。
+// market / marketSource は受け取らない（現在相場はマーケットから導出するため）。
 const CONDITIONS: readonly Condition[] = ["S", "A", "B", "C"];
-const MARKET_SOURCES: readonly MarketSource[] = ["manual", "auto", "estimate"];
 
 export type ParseResult =
   | { ok: true; value: CreateCollectionInput }
@@ -37,27 +36,12 @@ export const parseNewCollection = (body: unknown): ParseResult => {
     return { ok: false, error: `condition must be one of ${CONDITIONS.join("/")}` };
   }
 
-  let marketSource: MarketSource = "manual";
-  if (b.marketSource !== undefined && b.marketSource !== null) {
-    if (!MARKET_SOURCES.includes(b.marketSource as MarketSource)) {
-      return {
-        ok: false,
-        error: `marketSource must be one of ${MARKET_SOURCES.join("/")}`,
-      };
-    }
-    marketSource = b.marketSource as MarketSource;
-  }
-
   const qty = intOr(b.qty, 1);
   const cost = intOr(b.cost, 0);
-  const market = intOr(b.market, 0);
   if (qty === null || qty < 1) {
     return { ok: false, error: "qty must be an integer >= 1" };
   }
   if (cost === null) return { ok: false, error: "cost must be a non-negative integer" };
-  if (market === null) {
-    return { ok: false, error: "market must be a non-negative integer" };
-  }
 
   const purchaseDate = strOr(b.purchaseDate);
   const store = strOr(b.store);
@@ -75,8 +59,6 @@ export const parseNewCollection = (body: unknown): ParseResult => {
       condition: b.condition as Condition,
       qty,
       cost,
-      market,
-      marketSource,
       purchaseDate,
       store,
       location,
