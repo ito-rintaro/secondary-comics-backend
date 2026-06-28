@@ -7,8 +7,9 @@ info:
     二次流通コミックの資産管理アプリのバックエンド API。
     「My コレクション」の取得（GET /collection）、
     「マーケット相場」の取得（GET /market）、
-    「カタログ（書誌マスタ）」の取得（GET /catalogs）を定義する。
-    コレクションの登録・編集・削除（save / delete）は今回スコープ外。
+    「カタログ（書誌マスタ）」の取得（GET /catalogs）、
+    「コレクションへの追加」（POST /collection）を定義する。
+    コレクションの編集・削除（update / delete）は今回スコープ外。
 
 servers:
   - url: https://api.example.com/dev
@@ -42,6 +43,46 @@ paths:
               examples:
                 sample:
                   $ref: '#/components/examples/CollectionList'
+        '401':
+          description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      operationId: createCollection
+      summary: コレクションに 1 件追加
+      description: |
+        ログイン中ユーザー（JWT の sub）のコレクションへ新規アイテムを 1 件作成する。
+        書誌は catalogId で既存の Catalog を参照し、本文には所有インスタンス固有の
+        情報だけを入れる（id と updatedAt はサーバが採番）。
+        catalogId と condition が必須で、他は既定値で補完する。
+      tags: [collection]
+      security:
+        - cognito: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewCollectionInput'
+            examples:
+              sample:
+                $ref: '#/components/examples/NewCollectionInputSample'
+      responses:
+        '201':
+          description: 作成された CollectionItem（Catalog を合成した enriched 形）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionItem'
+        '400':
+          description: 入力不正（catalogId 不在 / 必須欠落 / 型不正 / JSON 不正など）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           description: 未認証（トークンが無い／無効）
           content:
@@ -223,6 +264,59 @@ components:
           format: int64
           description: 最終更新時刻（epoch ミリ秒）
           example: 1718000000000
+
+    # POST /collection のリクエストボディ。id / updatedAt はサーバ採番のため含めない。
+    # catalogId と condition のみ必須、他は既定値で補完する。
+    NewCollectionInput:
+      type: object
+      required: [catalogId, condition]
+      properties:
+        catalogId:
+          type: string
+          description: 参照する Catalog の id（実在必須。無ければ 400）
+          example: cat-001
+        condition:
+          $ref: '#/components/schemas/Condition'
+        qty:
+          type: integer
+          minimum: 1
+          default: 1
+          description: 所有数（既定 1）
+          example: 1
+        cost:
+          type: integer
+          minimum: 0
+          default: 0
+          description: 取得価格（1 点あたり・円。既定 0）
+          example: 8000
+        market:
+          type: integer
+          minimum: 0
+          default: 0
+          description: 現在相場（1 点あたり・円。既定 0）
+          example: 35000
+        marketSource:
+          allOf:
+            - $ref: '#/components/schemas/MarketSource'
+          default: manual
+          description: 相場の出所（既定 manual）
+        purchaseDate:
+          type: string
+          default: ''
+          description: 購入日（YYYY-MM-DD。既定 空文字）
+          example: '2025-12-01'
+        store:
+          type: string
+          default: ''
+          example: まんだらけ
+        location:
+          type: string
+          default: ''
+          example: 本棚A
+        memo:
+          type: string
+          default: ''
+          example: 初版・帯揃い。背ヤケ少なめ。
 
     # 状態ランク。domain/shared/Condition.ts と一致。
     Condition:
@@ -477,3 +571,17 @@ components:
           year: '2021'
           flags: { firstEd: true, obi: false, special: true }
           imageUrl: ''
+
+    NewCollectionInputSample:
+      summary: 作成リクエストの例（必須 + 任意）
+      value:
+        catalogId: cat-001
+        condition: A
+        qty: 1
+        cost: 8000
+        market: 35000
+        marketSource: manual
+        purchaseDate: '2025-12-01'
+        store: まんだらけ
+        location: 本棚A
+        memo: 初版・帯揃い。背ヤケ少なめ。

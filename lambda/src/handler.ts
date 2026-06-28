@@ -7,7 +7,9 @@ import { createDocumentClient } from "./adapters/persistence/dynamo/dynamoClient
 import { DynamoCollectionRepository } from "./adapters/persistence/dynamo/DynamoCollectionRepository";
 import { DynamoMarketRepository } from "./adapters/persistence/dynamo/DynamoMarketRepository";
 import { DynamoCatalogRepository } from "./adapters/persistence/dynamo/DynamoCatalogRepository";
+import { randomUUID } from "node:crypto";
 import { ListCollection } from "./application/usecases/ListCollection";
+import { CreateCollection } from "./application/usecases/CreateCollection";
 import { ListMarket } from "./application/usecases/ListMarket";
 import { ListCatalog } from "./application/usecases/ListCatalog";
 import { CollectionController } from "./adapters/http/CollectionController";
@@ -29,7 +31,17 @@ const collectionRepo = new DynamoCollectionRepository(
   catalogRepo,
 );
 const listCollection = new ListCollection(collectionRepo);
-const collectionController = new CollectionController(listCollection);
+// 作成系: catalogId の実在検証に catalogRepo を使い、id/updatedAt はここで採番する。
+const createCollection = new CreateCollection(
+  collectionRepo,
+  catalogRepo,
+  () => randomUUID(),
+  () => Date.now(),
+);
+const collectionController = new CollectionController(
+  listCollection,
+  createCollection,
+);
 const marketRepo = new DynamoMarketRepository(
   ddb,
   env.marketTableName,
