@@ -7,6 +7,7 @@ import { createDocumentClient } from "./adapters/persistence/dynamo/dynamoClient
 import { DynamoCollectionRepository } from "./adapters/persistence/dynamo/DynamoCollectionRepository";
 import { DynamoMarketRepository } from "./adapters/persistence/dynamo/DynamoMarketRepository";
 import { DynamoCatalogRepository } from "./adapters/persistence/dynamo/DynamoCatalogRepository";
+import { DynamoMarketPriceRepository } from "./adapters/persistence/dynamo/DynamoMarketPriceRepository";
 import { randomUUID } from "node:crypto";
 import { ListCollection } from "./application/usecases/ListCollection";
 import { CreateCollection } from "./application/usecases/CreateCollection";
@@ -25,16 +26,21 @@ const env = loadEnv();
 const ddb = createDocumentClient();
 // Catalog マスタは app テーブルに同居。Collection / Market の書誌 join に使う。
 const catalogRepo = new DynamoCatalogRepository(ddb, env.appTableName);
+// 現在相場は market-record から導出する（Collection は market を保存しない）。
+const marketPriceRepo = new DynamoMarketPriceRepository(ddb, env.marketTableName);
 const collectionRepo = new DynamoCollectionRepository(
   ddb,
   env.appTableName,
   catalogRepo,
+  marketPriceRepo,
 );
 const listCollection = new ListCollection(collectionRepo);
-// 作成系: catalogId の実在検証に catalogRepo を使い、id/updatedAt はここで採番する。
+// 作成系: catalogId の実在検証(catalogRepo)と現在相場の導出(marketPriceRepo)を使い、
+// id/updatedAt はここで採番する。
 const createCollection = new CreateCollection(
   collectionRepo,
   catalogRepo,
+  marketPriceRepo,
   () => randomUUID(),
   () => Date.now(),
 );

@@ -119,7 +119,8 @@ books.forEach((b, i) => {
 const collectionItems = books.slice(0, 4).map((b, i) => {
   const suffix = String(i + 1).padStart(3, "0");
   const itemId = `col-${suffix}`;
-  const market = marketItems[i].price;
+  // 取得価格は相場の 7 割で見積もる（market 自体は保存しない＝読み取り時に算出）。
+  const cost = Math.round(marketItems[i].price * 0.7);
   return {
     PK: `USER#${USER_ID}`,
     SK: `COLLECTION#${itemId}`,
@@ -130,9 +131,7 @@ const collectionItems = books.slice(0, 4).map((b, i) => {
       catalogId: `cat-${suffix}`,
       condition: b.condition,
       qty: i + 1,
-      cost: Math.round(market * 0.7),
-      market,
-      marketSource: "auto",
+      cost,
       purchaseDate: "2025-12-01",
       store: b.seller,
       location: `本棚-${String.fromCharCode(65 + i)}`,

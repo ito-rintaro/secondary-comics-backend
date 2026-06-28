@@ -230,7 +230,9 @@ components:
         market:
           type: integer
           minimum: 0
-          description: 現在相場（1 点あたり・円）
+          description: |
+            現在相場（1 点あたり・円）。サーバが catalogId のマーケット相場から
+            算出して載せる（コレクションには保存しない）。相場が無ければ 0。
           example: 35000
         marketSource:
           $ref: '#/components/schemas/MarketSource'
@@ -265,7 +267,8 @@ components:
           description: 最終更新時刻（epoch ミリ秒）
           example: 1718000000000
 
-    # POST /collection のリクエストボディ。id / updatedAt はサーバ採番のため含めない。
+    # POST /collection のリクエストボディ。id / updatedAt はサーバ採番、
+    # market / marketSource はマーケットから導出するため含めない。
     # catalogId と condition のみ必須、他は既定値で補完する。
     NewCollectionInput:
       type: object
@@ -289,17 +292,6 @@ components:
           default: 0
           description: 取得価格（1 点あたり・円。既定 0）
           example: 8000
-        market:
-          type: integer
-          minimum: 0
-          default: 0
-          description: 現在相場（1 点あたり・円。既定 0）
-          example: 35000
-        marketSource:
-          allOf:
-            - $ref: '#/components/schemas/MarketSource'
-          default: manual
-          description: 相場の出所（既定 manual）
         purchaseDate:
           type: string
           default: ''
@@ -330,7 +322,8 @@ components:
       type: string
       enum: [manual, auto, estimate]
       description: |
-        manual=手入力 / auto=自動取得 / estimate=推定。現状は manual 固定。
+        相場の出所。manual=手入力 / auto=自動取得 / estimate=推定。
+        Collection では相場あり→auto、相場なし→estimate をサーバが自動設定する。
 
     # 付帯状態フラグ。domain/collection/ConditionFlags.ts と一致。
     ConditionFlags:
@@ -579,8 +572,6 @@ components:
         condition: A
         qty: 1
         cost: 8000
-        market: 35000
-        marketSource: manual
         purchaseDate: '2025-12-01'
         store: まんだらけ
         location: 本棚A
