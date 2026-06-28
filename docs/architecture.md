@@ -55,7 +55,7 @@ lambda/
 │  │     ├─ DynamoCollectionRepository.ts … CollectionRepository の実装（Product を join）
 │  │     ├─ marketRecordMapper.ts  … テーブル行 + Product → MarketRecord
 │  │     ├─ DynamoMarketRepository.ts … MarketRepository の実装（byNew GSI / Product を join）
-│  │     ├─ productRecordMapper.ts … {PK,SK,data} ⇄ Product（PRODUCT#<id>/META）
+│  │     ├─ productRecordMapper.ts … {PK,SK,data} ⇄ Product（PK=PRODUCT / SK=PRODUCT#<id>）
 │  │     └─ DynamoProductRepository.ts … ProductRepository の実装（BatchGetItem）
 │  │
 │  ├─ config/
@@ -125,7 +125,9 @@ Product である程度「型」が決まっているので、固有情報だけ
 | `CollectionEntry` | 所有インスタンス | productId + condition / qty / cost / 購入情報 / memo |
 | `MarketRecord` | 出品 | productId + seller / price / history / change / listedAt |
 
-保存形（`app` 単一テーブル）: `PK="PRODUCT#<id>"`, `SK="META"`, `data={書誌}`。
+保存形（`app` 単一テーブル・アイテムコレクション型）: `PK="PRODUCT"`（固定）,
+`SK="PRODUCT#<id>"`, `data={書誌}`。全 Product が単一パーティション `PK="PRODUCT"` に
+束ねられるので、PK を Query すれば全件取得・SK 指定で個別取得できる。
 
 **API 応答は正規化前と同一**（破壊的変更なし）。`DynamoCollectionRepository` /
 `DynamoMarketRepository` が一覧取得時に参照 `productId` を集め、

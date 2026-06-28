@@ -71,10 +71,11 @@ books.forEach((b, i) => {
   const priceId = `pr-${suffix}`;
 
   // Product: 書誌のマスタ（型）。Collection / Market はこれを productId で参照する。
-  // single table key: PK="PRODUCT#<id>", SK="META"
+  // item-collection 型キー: PK="PRODUCT"(固定), SK="PRODUCT#<id>"
+  // → PK="PRODUCT" を Query すれば全 Product を1発取得できる。
   productItems.push({
-    PK: `PRODUCT#${productId}`,
-    SK: "META",
+    PK: "PRODUCT",
+    SK: `PRODUCT#${productId}`,
     data: {
       entityType: "Product",
       title: b.title,

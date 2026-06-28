@@ -5,8 +5,8 @@ import {
 import type { Product } from "../../../domain/product/Product";
 import type { ProductRepository } from "../../../application/ports/ProductRepository";
 import {
-  PRODUCT_SK,
-  productPk,
+  PRODUCT_PK,
+  productSk,
   toProduct,
   type ProductRecord,
 } from "./productRecordMapper";
@@ -29,7 +29,7 @@ export class DynamoProductRepository implements ProductRepository {
 
     for (let i = 0; i < uniqueIds.length; i += BATCH_LIMIT) {
       const chunk = uniqueIds.slice(i, i + BATCH_LIMIT);
-      let keys = chunk.map((id) => ({ PK: productPk(id), SK: PRODUCT_SK }));
+      let keys = chunk.map((id) => ({ PK: PRODUCT_PK, SK: productSk(id) }));
 
       // UnprocessedKeys はスロットリング時に返る。指数バックオフで数回リトライ。
       for (let attempt = 0; attempt < 5 && keys.length; attempt++) {

@@ -90,7 +90,7 @@ API は読み取り専用（GET のみ）なので、データは DynamoDB へ�
 **1 件 = 1 レコード**で、キー以外は `data`（Map）にまとめる（属性を増やさないため）。
 
 書誌（`title` / `author` / `publisher` / `volume` / `year` / `flags` / `imageUrl`）は
-**Product マスタ（`PRODUCT#<id>` / `META`）に正規化**されており、コレクションは
+**Product マスタ（`PK="PRODUCT"` / `SK="PRODUCT#<id>"`）に正規化**されており、コレクションは
 それを `productId` で参照し、**所有インスタンス固有の情報だけ**を持つ。
 → **先に対象の Product を投入してから**コレクションを入れること（Product が
 無いと、API 応答で書誌・画像が空になる）。
@@ -112,8 +112,8 @@ $app = (terraform -chdir=terraform output -raw app_table_name)
 # 1) Product マスタ（書誌の型＝hub。複数のコレクション/マーケットで共有できる）
 aws dynamodb put-item --table-name $app --item (@'
 {
-  "PK":   {"S": "PRODUCT#prod_akira_obi"},
-  "SK":   {"S": "META"},
+  "PK":   {"S": "PRODUCT"},
+  "SK":   {"S": "PRODUCT#prod_akira_obi"},
   "data": {"M": {
     "entityType": {"S": "Product"},
     "title":      {"S": "AKIRA 全6巻 初版帯付セット"},
@@ -182,7 +182,7 @@ Product 投入を参照。Product が無いと書誌・画像が空で返る）�
 |---|---|
 | `marketRecordId` | レコードの id（= API の `id`） |
 | `gsiPk` | `"RECORD"` 固定（GSI で全件を 1 束にまとめる） |
-| `productId` | 参照する Product（`PRODUCT#<productId>`） |
+| `productId` | 参照する Product の id（実体は `PK="PRODUCT"` / `SK="PRODUCT#<id>"`） |
 | `seller` | 出品者 / ショップ名 |
 | `condition` | `S` / `A` / `B` / `C` |
 | `history` | 価格推移（円）の配列。要素数 12・末尾が現在価格 |
@@ -196,7 +196,7 @@ AWS CLI での投入例（`<Market テーブル名>` は `terraform output marke
 
 ```powershell
 $mr = (terraform -chdir=terraform output -raw market_record_table_name)
-# Product（PRODUCT#prod_akira_obi / META）は投入済みである前提。
+# Product（PK="PRODUCT" / SK="PRODUCT#prod_akira_obi"）は投入済みである前提。
 aws dynamodb put-item --table-name $mr --item (@'
 {
   "marketRecordId": {"S": "mk0"},
@@ -262,7 +262,7 @@ aws s3 cp .\akira_vol1.jpg "s3://$bucket/images/akira_vol1.jpg"
 
 | 種類 | PK | SK |
 |---|---|---|
-| Product | `PRODUCT#<productId>` | `META` |
+| Product | `PRODUCT`（固定） | `PRODUCT#<productId>` |
 | User | `USER#<userId>` | `PROFILE` |
 | Collection | `USER#<userId>` | `COLLECTION#<itemId>` |
 | Price | `PRICE#<priceId>` | `<YYYY-MM>` |
