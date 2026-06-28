@@ -1,4 +1,4 @@
-// Seed test data into the design tables (Collection / MarketRecord / Price / User).
+// Seed test data into the design tables (Product / Collection / MarketRecord).
 // Writes directly to DynamoDB via the AWS SDK (plain JS objects are auto-marshalled).
 // Table names are resolved from `terraform output` for the currently selected workspace.
 //
@@ -22,7 +22,7 @@ const out = JSON.parse(
 );
 const T = {
   market: out.market_record_table_name.value,
-  app: out.app_table_name.value, // single table: User / Collection / Price
+  app: out.app_table_name.value, // single table: Product / Collection（USER# 配下）
 };
 console.log("Target tables:", T);
 
@@ -62,13 +62,11 @@ const months = lastNMonths(12);
 
 const productItems = [];
 const marketItems = [];
-const priceItems = [];
 
 books.forEach((b, i) => {
   const suffix = String(i + 1).padStart(3, "0");
   const productId = `prod-${suffix}`;
   const marketRecordId = `mr-${suffix}`;
-  const priceId = `pr-${suffix}`;
 
   // Product: 書誌のマスタ（型）。Collection / Market はこれを productId で参照する。
   // item-collection 型キー: PK="PRODUCT"(固定), SK="PRODUCT#<id>"
@@ -100,28 +98,11 @@ books.forEach((b, i) => {
   const change = Number(((last - first) / first).toFixed(4));
   const listedAt = now - i * 86_400_000; // stagger by day for byNew sorting
 
-  // Price: one item per month (the source of truth for the time series).
-  // single table key: PK="PRICE#<priceId>", SK="<YYYY-MM>"
-  // payload is stored under the `data` map (everything except PK/SK).
-  months.forEach((m, idx) => {
-    priceItems.push({
-      PK: `PRICE#${priceId}`,
-      SK: m,
-      data: {
-        entityType: "PricePoint",
-        priceId,
-        month: m,
-        price: history[idx],
-      },
-    });
-  });
-
   // MarketRecord: 出品固有の価格情報。書誌は Product を productId で参照（正規化）。
-  // gsiPk groups all records for the byNew / byPrice GSI queries.
+  // 価格推移は history(12要素) を行に直接埋め込む。gsiPk が byNew / byPrice GSI の束ね。
   marketItems.push({
     marketRecordId,
     productId,
-    priceId,
     seller: b.seller,
     condition: b.condition,
     price: last,
@@ -162,22 +143,6 @@ const collectionItems = books.slice(0, 4).map((b, i) => {
   };
 });
 
-// User: the test user's profile.
-// single table key: PK="USER#<userId>", SK="PROFILE"
-const userItems = [
-  {
-    PK: `USER#${USER_ID}`,
-    SK: "PROFILE",
-    data: {
-      entityType: "User",
-      userId: USER_ID,
-      email: "test@example.com",
-      displayName: "テストユーザー",
-      createdAt: now,
-    },
-  },
-];
-
 async function batchPut(table, items) {
   for (let i = 0; i < items.length; i += 25) {
     const chunk = items.slice(i, i + 25);
@@ -195,11 +160,6 @@ async function batchPut(table, items) {
 
 console.log("Seeding...");
 await batchPut(T.market, marketItems);
-// Product / User / Collection / Price all live in the single app table.
-await batchPut(T.app, [
-  ...productItems,
-  ...userItems,
-  ...collectionItems,
-  ...priceItems,
-]);
+// Product / Collection（USER# パーティション配下）は単一 app テーブルに同居。
+await batchPut(T.app, [...productItems, ...collectionItems]);
 console.log("Done.");
