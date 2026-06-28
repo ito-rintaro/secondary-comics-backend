@@ -256,16 +256,14 @@ aws s3 cp .\akira_vol1.jpg "s3://$bucket/images/akira_vol1.jpg"
 | テーブル | 内容 | キー |
 |---|---|---|
 | `market-record` | 相場レコード（独立。GSI あり）。書誌は `productId` で `app` の Product を参照 | PK=`marketRecordId` |
-| `app`（単一テーブル） | Product / User / Collection / Price をまとめて管理 | PK / SK |
+| `app`（単一テーブル） | Product / Collection をまとめて管理 | PK / SK |
 
 `app` のキー設計（型プレフィックスで同居）:
 
 | 種類 | PK | SK |
 |---|---|---|
 | Product | `PRODUCT`（固定） | `PRODUCT#<productId>` |
-| User | `USER#<userId>` | `PROFILE` |
 | Collection | `USER#<userId>` | `COLLECTION#<itemId>` |
-| Price | `PRICE#<priceId>` | `<YYYY-MM>` |
 
 > Product は書誌（title/author/publisher/volume/year/flags/imageUrl）の **マスタ＝hub**。
 > Collection / MarketRecord は `productId` で参照し、固有情報だけを持つ（正規化）。
@@ -292,7 +290,7 @@ cd ..\..
 ```
 
 - MarketRecord は GSI `byNew`（新着順）/ `byPrice`（価格順）でソート取得できる
-- Price は各 MarketRecord に対し12ヶ月分を生成
+  （価格推移は MarketRecord 行の `history`（12要素）に直接埋め込む）
 - Collection の所有者 ID は test ユーザーの Cognito `sub`。別ユーザーにするには
   `$env:SEED_USER_ID="<sub>"` を設定して実行
 
@@ -301,16 +299,13 @@ cd ..\..
 ```powershell
 $app = (terraform -chdir=terraform output -raw app_table_name)
 $pk  = "USER#<sub>"
-# プロフィール + 所有品をまとめて取得
-aws dynamodb query --table-name $app --key-condition-expression "PK = :pk" `
-  --expression-attribute-values "{\":pk\":{\"S\":\"$pk\"}}"
-# 所有品のみ
+# ユーザーの所有品（USER# パーティション配下）を取得
 aws dynamodb query --table-name $app `
   --key-condition-expression "PK = :pk AND begins_with(SK, :i)" `
   --expression-attribute-values "{\":pk\":{\"S\":\"$pk\"},\":i\":{\"S\":\"COLLECTION#\"}}"
-# 価格推移
+# Product 全件（item-collection。PK 固定で1発取得）
 aws dynamodb query --table-name $app --key-condition-expression "PK = :pk" `
-  --expression-attribute-values '{\":pk\":{\"S\":\"PRICE#pr-001\"}}'
+  --expression-attribute-values '{\":pk\":{\"S\":\"PRODUCT\"}}'
 ```
 
 > テーブル名は `terraform output` から自動取得するため、対象 workspace を選んでから実行する。
