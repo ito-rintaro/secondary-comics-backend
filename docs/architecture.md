@@ -28,13 +28,16 @@ lambda/
 │  │  │  ├─ Condition.ts           … S/A/B/C（market と共有）
 │  │  │  ├─ ConditionFlags.ts      … firstEd/obi/special（market と共有）
 │  │  │  └─ MarketSource.ts        … manual/auto/estimate
-│  │  └─ market/
-│  │     └─ MarketRecord.ts        … 相場1件。openapi.yaml の MarketRecord と一致
+│  │  ├─ market/
+│  │  │  └─ MarketRecord.ts        … 相場1件。openapi.yaml の MarketRecord と一致
+│  │  └─ product/
+│  │     └─ Product.ts             … 書誌のマスタ（型）。Collection/Market が共通参照する hub
 │  │
 │  ├─ application/                 … ユースケースと「ポート」(interface)
 │  │  ├─ ports/
 │  │  │  ├─ CollectionRepository.ts … listByUser(userId): Promise<CollectionItem[]>
-│  │  │  └─ MarketRepository.ts    … listAll(): Promise<MarketRecord[]>
+│  │  │  ├─ MarketRepository.ts    … listAll(): Promise<MarketRecord[]>
+│  │  │  └─ ProductRepository.ts   … getMany(ids): Promise<Map<id, Product>>
 │  │  └─ usecases/
 │  │     ├─ ListCollection.ts      … repo を呼んで一覧を返す（AWS非依存）
 │  │     └─ ListMarket.ts          … repo を呼んで相場一覧を返す（AWS非依存）
@@ -48,10 +51,12 @@ lambda/
 │  │  │  └─ router.ts              … routeKey → controller のディスパッチ
 │  │  └─ persistence/dynamo/       … 出力アダプタ（DynamoDB 側）
 │  │     ├─ dynamoClient.ts        … DocumentClient 生成
-│  │     ├─ collectionRecordMapper.ts … {PK,SK,data} ⇄ CollectionItem
-│  │     ├─ DynamoCollectionRepository.ts … CollectionRepository の実装
-│  │     ├─ marketRecordMapper.ts  … テーブル行 → MarketRecord
-│  │     └─ DynamoMarketRepository.ts … MarketRepository の実装（byNew GSI）
+│  │     ├─ collectionRecordMapper.ts … {PK,SK,data} + Product → CollectionItem
+│  │     ├─ DynamoCollectionRepository.ts … CollectionRepository の実装（Product を join）
+│  │     ├─ marketRecordMapper.ts  … テーブル行 + Product → MarketRecord
+│  │     ├─ DynamoMarketRepository.ts … MarketRepository の実装（byNew GSI / Product を join）
+│  │     ├─ productRecordMapper.ts … {PK,SK,data} ⇄ Product（PRODUCT#<id>/META）
+│  │     └─ DynamoProductRepository.ts … ProductRepository の実装（BatchGetItem）
 │  │
 │  ├─ config/
 │  │  └─ env.ts                    … 環境変数(APP_TABLE_NAME / MARKET_TABLE_NAME)の読み取りを一元化
@@ -105,6 +110,31 @@ DynamoDB 依存は `DynamoCollectionRepository` と `collectionRecordMapper` の
 
 並び順（新着/値上がり等）はフロント側で行うため、サーバーは生の配列を返す。
 `Condition` / `ConditionFlags` は `domain/collection` の型を再利用している。
+
+## Product マスタ（書誌の正規化 hub）
+
+`CollectionEntry` と `MarketRecord` は、以前は書誌情報
+（`title` / `author` / `publisher` / `volume` / `year` / `flags` / `imageUrl`）を
+各レコードに重複して持っていた。これを **Product** マスタへ正規化し、各レコードは
+`productId` で参照するだけにした。新規 CollectionEntry / MarketRecord を作る際は、
+Product である程度「型」が決まっているので、固有情報だけ足せばよい。
+
+| 種別 | 役割 | 主な固有属性 |
+|------|------|--------------|
+| `Product` | 書誌のマスタ（型・hub） | title / author / publisher / volume / year / flags / imageUrl |
+| `CollectionEntry` | 所有インスタンス | productId + condition / qty / cost / 購入情報 / memo |
+| `MarketRecord` | 出品 | productId + seller / price / history / change / listedAt |
+
+保存形（`app` 単一テーブル）: `PK="PRODUCT#<id>"`, `SK="META"`, `data={書誌}`。
+
+**API 応答は正規化前と同一**（破壊的変更なし）。`DynamoCollectionRepository` /
+`DynamoMarketRepository` が一覧取得時に参照 `productId` を集め、
+`ProductRepository.getMany`（`BatchGetItem`）で一括取得して**サーバ側で join** し、
+従来どおり書誌入りの `CollectionItem` / `MarketRecord` を組み立てて返す。
+参照先 Product が無い行は空プレースホルダ（`emptyProduct`）で contract を満たす。
+
+> このフェーズは正規化基盤と読み取り（join）まで。Product / Collection を作成する
+> write エンドポイント（`POST /products` 等）は次フェーズで追加する。
 
 ## 拡張のしかた（将来の save / delete）
 

@@ -41,8 +41,9 @@ resource "aws_dynamodb_table" "market_record" {
   }
 }
 
-# --- app: 単一テーブル設計。User / Collection / Price をまとめて管理 ---
+# --- app: 単一テーブル設計。Product / User / Collection / Price をまとめて管理 ---
 # 汎用キー(PK/SK)に型プレフィックスを付けて1テーブルに同居させる。
+#   Product    : PK="PRODUCT#<id>"    SK="META"            （書誌のマスタ＝型。Collection/Market が productId で参照）
 #   User       : PK="USER#<userId>"   SK="PROFILE"
 #   Collection : PK="USER#<userId>"   SK="COLLECTION#<itemId>"
 #   Price      : PK="PRICE#<priceId>" SK="<YYYY-MM>"

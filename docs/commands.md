@@ -89,40 +89,61 @@ Invoke-RestMethod "$base/collection" -Headers @{ Authorization = "Bearer $token"
 API は読み取り専用（GET のみ）なので、データは DynamoDB へ直接入れる。
 **1 件 = 1 レコード**で、キー以外は `data`（Map）にまとめる（属性を増やさないため）。
 
+書誌（`title` / `author` / `publisher` / `volume` / `year` / `flags` / `imageUrl`）は
+**Product マスタ（`PRODUCT#<id>` / `META`）に正規化**されており、コレクションは
+それを `productId` で参照し、**所有インスタンス固有の情報だけ**を持つ。
+→ **先に対象の Product を投入してから**コレクションを入れること（Product が
+無いと、API 応答で書誌・画像が空になる）。
+
 | 属性 | 値 |
 |---|---|
 | `PK` | `USER#<Cognito の sub>` |
 | `SK` | `COLLECTION#<コレクションの id>` |
-| `data` | `CollectionItem` の **`id` 以外**のフィールド（`title` / `author` / `publisher` / `volume` / `year` / `condition` / `qty` / `cost` / `market` / `marketSource` / `flags` / `purchaseDate` / `store` / `location` / `memo` / `imageUrl` / `updatedAt`）。`imageUrl` の値の規約は [画像（S3 + CloudFront）](#画像s3--cloudfront) を参照 |
+| `data` | `productId`（参照する Product）＋ 固有情報（`condition` / `qty` / `cost` / `market` / `marketSource` / `purchaseDate` / `store` / `location` / `memo` / `updatedAt`） |
 
 > `id` はレコードには持たせず、`SK` の `COLLECTION#` を除いた値がそのまま API の `id` になる。
+> 書誌・画像は、サーバが `productId` から Product を引いて合成し応答に載せる（サーバ側 join）。
 > `<sub>` は対象ユーザーの Cognito `sub`（`aws cognito-idp admin-get-user ...` の `sub` 属性で確認）。
 
 AWS CLI での投入例（`<App テーブル名>` は `terraform output app_table_name`）:
 
 ```powershell
 $app = (terraform -chdir=terraform output -raw app_table_name)
+# 1) Product マスタ（書誌の型＝hub。複数のコレクション/マーケットで共有できる）
+aws dynamodb put-item --table-name $app --item (@'
+{
+  "PK":   {"S": "PRODUCT#prod_akira_obi"},
+  "SK":   {"S": "META"},
+  "data": {"M": {
+    "entityType": {"S": "Product"},
+    "title":      {"S": "AKIRA 全6巻 初版帯付セット"},
+    "author":     {"S": "大友克洋"},
+    "publisher":  {"S": "講談社 / KCデラックス"},
+    "volume":     {"S": "全6巻"},
+    "year":       {"S": "1984"},
+    "flags":      {"M": {"firstEd": {"BOOL": true}, "obi": {"BOOL": true}, "special": {"BOOL": false}}},
+    "imageUrl":   {"S": ""}
+  }}
+}
+'@ -replace '\r','')
+
+# 2) Collection（productId で Product を参照。書誌は持たず固有情報のみ）
 aws dynamodb put-item --table-name $app --item (@'
 {
   "PK":   {"S": "USER#<sub>"},
   "SK":   {"S": "COLLECTION#seed0"},
   "data": {"M": {
-    "title":        {"S": "AKIRA 全6巻 初版帯付セット"},
-    "author":       {"S": "大友克洋"},
-    "publisher":    {"S": "講談社 / KCデラックス"},
-    "volume":       {"S": "全6巻"},
-    "year":         {"S": "1984"},
+    "entityType":   {"S": "CollectionItem"},
+    "productId":    {"S": "prod_akira_obi"},
     "condition":    {"S": "A"},
     "qty":          {"N": "1"},
     "cost":         {"N": "8000"},
     "market":       {"N": "35000"},
     "marketSource": {"S": "manual"},
-    "flags":        {"M": {"firstEd": {"BOOL": true}, "obi": {"BOOL": true}, "special": {"BOOL": false}}},
     "purchaseDate": {"S": ""},
     "store":        {"S": "まんだらけ"},
     "location":     {"S": "本棚A"},
     "memo":         {"S": "初版・帯揃い。背ヤケ少なめ。"},
-    "imageUrl":     {"S": ""},
     "updatedAt":    {"N": "1718000000000"}
   }}
 }
@@ -152,34 +173,37 @@ API は読み取り専用（GET のみ）なので、データは DynamoDB へ�
 （`id` という属性は持たず、`marketRecordId` がそのまま API の `id` になる）。
 全件を一覧取得できるよう、**`gsiPk` は必ず `"RECORD"` 固定**にする。
 
+書誌（`title` / `author` / `publisher` / `volume` / `flags` / `imageUrl`）は
+**Product マスタに正規化**済みで、ここでは持たず `productId` で参照する。
+→ **先に対象の Product を投入してから**入れること（前項のコレクション例の
+Product 投入を参照。Product が無いと書誌・画像が空で返る）。
+
 | 属性 | 値 |
 |---|---|
 | `marketRecordId` | レコードの id（= API の `id`） |
 | `gsiPk` | `"RECORD"` 固定（GSI で全件を 1 束にまとめる） |
-| `title` / `author` / `publisher` / `volume` / `seller` | 書誌・出品情報 |
+| `productId` | 参照する Product（`PRODUCT#<productId>`） |
+| `seller` | 出品者 / ショップ名 |
 | `condition` | `S` / `A` / `B` / `C` |
-| `flags` | `{ firstEd, obi, special }`（Map） |
 | `history` | 価格推移（円）の配列。要素数 12・末尾が現在価格 |
 | `price` | 現在価格（円）。`history` の末尾と一致 |
 | `change` | 期間変化率 `(末尾 - 先頭) / 先頭`（例: `0.18`） |
 | `listedAt` | 新着ソート用の数値（大きいほど新しい。GSI `byNew` のキー） |
-| `imageUrl` | 画像の S3 オブジェクトキー（**ファイル名のみ**。例 `xxx.jpg`。空文字/未設定可） → [画像（S3 + CloudFront）](#画像s3--cloudfront) |
+
+> 書誌・画像は Product 側に持つ。`imageUrl` の規約は [画像（S3 + CloudFront）](#画像s3--cloudfront) を参照。
 
 AWS CLI での投入例（`<Market テーブル名>` は `terraform output market_record_table_name`）:
 
 ```powershell
 $mr = (terraform -chdir=terraform output -raw market_record_table_name)
+# Product（PRODUCT#prod_akira_obi / META）は投入済みである前提。
 aws dynamodb put-item --table-name $mr --item (@'
 {
   "marketRecordId": {"S": "mk0"},
   "gsiPk":          {"S": "RECORD"},
-  "title":          {"S": "AKIRA 全6巻 初版帯付 美品セット"},
-  "author":         {"S": "大友克洋"},
-  "publisher":      {"S": "講談社"},
-  "volume":         {"S": "全6巻"},
+  "productId":      {"S": "prod_akira_obi"},
   "seller":         {"S": "コレクター田中"},
   "condition":      {"S": "A"},
-  "flags":          {"M": {"firstEd": {"BOOL": true}, "obi": {"BOOL": true}, "special": {"BOOL": false}}},
   "history":        {"L": [
     {"N": "30000"}, {"N": "30500"}, {"N": "31000"}, {"N": "31800"},
     {"N": "32500"}, {"N": "33000"}, {"N": "33600"}, {"N": "34200"},
@@ -187,18 +211,19 @@ aws dynamodb put-item --table-name $mr --item (@'
   ]},
   "price":          {"N": "35400"},
   "change":         {"N": "0.18"},
-  "listedAt":       {"N": "0"},
-  "imageUrl":       {"S": "619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg"}
+  "listedAt":       {"N": "0"}
 }
 '@ -replace '\r','')
 ```
 
 > `gsiPk` を付け忘れると `byNew` GSI に載らず、`GET /market` の結果に出てこないので注意。
+> `productId` が指す Product が無いと、書誌・画像が空のレコードとして返る。
 
 ## 画像（S3 + CloudFront）
 
-コレクション / マーケットの `imageUrl` 用の画像は、専用の S3 バケットに置き、
-**CloudFront 経由**でフロントに配信する（バケット自体は非公開。OAC で CloudFront からのみ読める）。
+Product（コレクション / マーケットが `productId` で参照）の `imageUrl` 用の画像は、
+専用の S3 バケットに置き、**CloudFront 経由**でフロントに配信する
+（バケット自体は非公開。OAC で CloudFront からのみ読める）。
 Terraform 定義は `terraform/assets.tf`。
 
 | 項目 | 値（dev） | 取得 |
@@ -208,7 +233,7 @@ Terraform 定義は `terraform/assets.tf`。
 
 ### `imageUrl` の値の規約
 
-- DynamoDB に入れる `imageUrl` は**ファイル名のみ**（例 `akira_vol1.jpg`）。`images/` やドメインは含めない。
+- Product の `imageUrl`（DynamoDB）は**ファイル名のみ**（例 `akira_vol1.jpg`）。`images/` やドメインは含めない。
 - S3 へは **`images/<ファイル名>`** のキーでアップロードする。
 - フロントが配信ドメイン + `/images/` を前置して `https://<cdn>/images/<ファイル名>` を組み立てて表示する。
 - 未設定・空文字可。サーバーは未設定なら `imageUrl: ""` を返す（API は壊れない）。
@@ -230,16 +255,21 @@ aws s3 cp .\akira_vol1.jpg "s3://$bucket/images/akira_vol1.jpg"
 
 | テーブル | 内容 | キー |
 |---|---|---|
-| `market-record` | 相場マスタ（独立。GSI あり） | PK=`marketRecordId` |
-| `app`（単一テーブル） | User / Collection / Price をまとめて管理 | PK / SK |
+| `market-record` | 相場レコード（独立。GSI あり）。書誌は `productId` で `app` の Product を参照 | PK=`marketRecordId` |
+| `app`（単一テーブル） | Product / User / Collection / Price をまとめて管理 | PK / SK |
 
 `app` のキー設計（型プレフィックスで同居）:
 
 | 種類 | PK | SK |
 |---|---|---|
+| Product | `PRODUCT#<productId>` | `META` |
 | User | `USER#<userId>` | `PROFILE` |
 | Collection | `USER#<userId>` | `COLLECTION#<itemId>` |
 | Price | `PRICE#<priceId>` | `<YYYY-MM>` |
+
+> Product は書誌（title/author/publisher/volume/year/flags/imageUrl）の **マスタ＝hub**。
+> Collection / MarketRecord は `productId` で参照し、固有情報だけを持つ（正規化）。
+> 一覧取得時はサーバが `productId` から Product を `BatchGetItem` で引いて合成して返す。
 
 各アイテムは **`PK` / `SK` ＋ `data`（ネスト Map）** の形。
 `PK`/`SK` 以外の中身はすべて `data` の中に入れる（SDK が JS オブジェクト ⇄ Map を自動変換）。
