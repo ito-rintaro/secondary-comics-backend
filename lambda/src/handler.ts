@@ -6,6 +6,7 @@ import { loadEnv } from "./config/env";
 import { createDocumentClient } from "./adapters/persistence/dynamo/dynamoClient";
 import { DynamoCollectionRepository } from "./adapters/persistence/dynamo/DynamoCollectionRepository";
 import { DynamoMarketRepository } from "./adapters/persistence/dynamo/DynamoMarketRepository";
+import { DynamoProductRepository } from "./adapters/persistence/dynamo/DynamoProductRepository";
 import { ListCollection } from "./application/usecases/ListCollection";
 import { ListMarket } from "./application/usecases/ListMarket";
 import { CollectionController } from "./adapters/http/CollectionController";
@@ -18,10 +19,20 @@ import { json } from "./adapters/http/httpResponse";
 // 各層は具体実装を知らず、ここだけが全体の配線を知る。
 const env = loadEnv();
 const ddb = createDocumentClient();
-const collectionRepo = new DynamoCollectionRepository(ddb, env.appTableName);
+// Product マスタは app テーブルに同居。Collection / Market の書誌 join に使う。
+const productRepo = new DynamoProductRepository(ddb, env.appTableName);
+const collectionRepo = new DynamoCollectionRepository(
+  ddb,
+  env.appTableName,
+  productRepo,
+);
 const listCollection = new ListCollection(collectionRepo);
 const collectionController = new CollectionController(listCollection);
-const marketRepo = new DynamoMarketRepository(ddb, env.marketTableName);
+const marketRepo = new DynamoMarketRepository(
+  ddb,
+  env.marketTableName,
+  productRepo,
+);
 const listMarket = new ListMarket(marketRepo);
 const marketController = new MarketController(listMarket);
 const router = new Router(collectionController, marketController);

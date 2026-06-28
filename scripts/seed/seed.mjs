@@ -60,13 +60,32 @@ const books = [
 
 const months = lastNMonths(12);
 
+const productItems = [];
 const marketItems = [];
 const priceItems = [];
 
 books.forEach((b, i) => {
   const suffix = String(i + 1).padStart(3, "0");
+  const productId = `prod-${suffix}`;
   const marketRecordId = `mr-${suffix}`;
   const priceId = `pr-${suffix}`;
+
+  // Product: 書誌のマスタ（型）。Collection / Market はこれを productId で参照する。
+  // single table key: PK="PRODUCT#<id>", SK="META"
+  productItems.push({
+    PK: `PRODUCT#${productId}`,
+    SK: "META",
+    data: {
+      entityType: "Product",
+      title: b.title,
+      author: b.author,
+      publisher: b.publisher,
+      volume: b.volume,
+      year: b.year,
+      flags: b.flags,
+      imageUrl: "",
+    },
+  });
 
   // generate a 12-month price series with mild wiggle around the base price.
   let p = b.basePrice;
@@ -96,18 +115,14 @@ books.forEach((b, i) => {
     });
   });
 
-  // MarketRecord: cached price/history for fast list rendering. gsiPk groups all records.
+  // MarketRecord: 出品固有の価格情報。書誌は Product を productId で参照（正規化）。
+  // gsiPk groups all records for the byNew / byPrice GSI queries.
   marketItems.push({
     marketRecordId,
+    productId,
     priceId,
-    title: b.title,
-    author: b.author,
-    publisher: b.publisher,
-    volume: b.volume,
-    year: b.year,
     seller: b.seller,
     condition: b.condition,
-    flags: b.flags,
     price: last,
     change,
     history,
@@ -116,7 +131,8 @@ books.forEach((b, i) => {
   });
 });
 
-// Collection: the test user owns the first few books (references MarketRecord).
+// Collection: the test user owns the first few books. 書誌は Product を参照（正規化）。
+// 所有インスタンス固有情報（状態 / 数量 / 取得価格 / 購入情報）だけを持つ。
 // single table key: PK="USER#<userId>", SK="COLLECTION#<itemId>"
 const collectionItems = books.slice(0, 4).map((b, i) => {
   const suffix = String(i + 1).padStart(3, "0");
@@ -129,7 +145,8 @@ const collectionItems = books.slice(0, 4).map((b, i) => {
       entityType: "CollectionItem",
       userId: USER_ID,
       itemId,
-      marketRecordId: `mr-${suffix}`,
+      productId: `prod-${suffix}`,
+      condition: b.condition,
       qty: i + 1,
       cost: Math.round(market * 0.7),
       market,
@@ -138,7 +155,6 @@ const collectionItems = books.slice(0, 4).map((b, i) => {
       store: b.seller,
       location: `本棚-${String.fromCharCode(65 + i)}`,
       memo: i === 0 ? "サイン入り" : "",
-      imageKey: "",
       createdAt: now,
       updatedAt: now,
     },
@@ -178,6 +194,11 @@ async function batchPut(table, items) {
 
 console.log("Seeding...");
 await batchPut(T.market, marketItems);
-// User / Collection / Price all live in the single app table.
-await batchPut(T.app, [...userItems, ...collectionItems, ...priceItems]);
+// Product / User / Collection / Price all live in the single app table.
+await batchPut(T.app, [
+  ...productItems,
+  ...userItems,
+  ...collectionItems,
+  ...priceItems,
+]);
 console.log("Done.");
