@@ -1,11 +1,13 @@
 import type { ConditionFlags } from "../../../domain/collection/ConditionFlags";
 import type { Product } from "../../../domain/product/Product";
 
-// app テーブル（単一テーブル）における Product マスタの保存形。
-//   PK="PRODUCT#<id>"  SK="META"  data={...Product(id 以外)}
+// app テーブル（単一テーブル）における Product マスタの保存形（アイテムコレクション型）。
+//   PK="PRODUCT"（固定）  SK="PRODUCT#<id>"  data={...Product(id 以外)}
+// 全 Product を単一パーティション(PK="PRODUCT")に束ねるため、PK を Query すれば
+// 全件取得、SK 指定（または begins_with）で個別・範囲取得ができる。
 // 全ユーザー共通の書誌マスタ。CollectionEntry / MarketRecord から参照される hub。
-export const PRODUCT_PREFIX = "PRODUCT#";
-export const PRODUCT_SK = "META";
+export const PRODUCT_PK = "PRODUCT";
+export const PRODUCT_SK_PREFIX = "PRODUCT#";
 
 export interface ProductRecord {
   PK: string;
@@ -13,13 +15,13 @@ export interface ProductRecord {
   data: Omit<Product, "id">;
 }
 
-// productId → PK 文字列。
-export const productPk = (id: string): string => `${PRODUCT_PREFIX}${id}`;
+// productId → SK 文字列。
+export const productSk = (id: string): string => `${PRODUCT_SK_PREFIX}${id}`;
 
-// {PK,SK,data} → Product。id は PK から PRODUCT# を外して得る。
+// {PK,SK,data} → Product。id は SK から PRODUCT# を外して得る。
 export const toProduct = (rec: ProductRecord): Product => ({
   ...rec.data,
-  id: rec.PK.slice(PRODUCT_PREFIX.length),
+  id: rec.SK.slice(PRODUCT_SK_PREFIX.length),
   imageUrl: rec.data.imageUrl ?? "", // 旧レコード(imageUrl 未保存)でも contract を満たす既定値
 });
 
