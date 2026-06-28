@@ -21,6 +21,8 @@ export class Router {
         return json(200, { status: "ok" });
       case "GET /collection":
         return this.collection.list(event);
+      case "POST /collection":
+        return this.collection.create(event);
       case "GET /market":
         return this.market.list(event);
       case "GET /catalogs":

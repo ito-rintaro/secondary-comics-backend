@@ -1,8 +1,10 @@
 import {
   QueryCommand,
+  PutCommand,
   type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
 import type { CollectionItem } from "../../../domain/collection/CollectionItem";
+import type { CollectionInstance } from "../../../domain/collection/buildCollectionItem";
 import type { CollectionRepository } from "../../../application/ports/CollectionRepository";
 import type { CatalogRepository } from "../../../application/ports/CatalogRepository";
 import {
@@ -10,6 +12,7 @@ import {
   toCollectionItem,
   userPk,
   type CollectionRecord,
+  type CollectionData,
 } from "./collectionRecordMapper";
 import { emptyCatalog } from "./catalogRecordMapper";
 
@@ -45,6 +48,23 @@ export class DynamoCollectionRepository implements CollectionRepository {
         rec,
         catalogMap.get(rec.data.catalogId) ?? emptyCatalog(rec.data.catalogId),
       ),
+    );
+  }
+
+  async create(
+    userId: string,
+    id: string,
+    catalogId: string,
+    instance: CollectionInstance,
+  ): Promise<void> {
+    const data: CollectionData = { catalogId, ...instance };
+    await this.ddb.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: { PK: userPk(userId), SK: `${COLLECTION_PREFIX}${id}`, data },
+        // 同一キーが既にあれば上書きせず失敗させる（採番衝突への保険）。
+        ConditionExpression: "attribute_not_exists(PK)",
+      }),
     );
   }
 }

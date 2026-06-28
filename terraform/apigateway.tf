@@ -39,6 +39,7 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
 locals {
   routes = [
     "GET /collection",
+    "POST /collection",
     "GET /market",
     "GET /catalogs",
   ]

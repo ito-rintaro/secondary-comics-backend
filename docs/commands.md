@@ -84,6 +84,35 @@ Invoke-RestMethod "$base/collection" -Headers @{ Authorization = "Bearer $token"
 サーバーは `app` テーブルを `PK = "USER#<sub>"` かつ `begins_with(SK, "COLLECTION#")` で Query し、
 各レコードを `id`（= SK から `COLLECTION#` を除いた値）＋ `data` の中身に展開して返す。
 
+### コレクション作成（`POST /collection` / 認証必須）
+
+`openapi.yaml` 準拠。ログイン中ユーザー（JWT の `sub`）のコレクションに 1 件追加する。
+書誌は `catalogId` で既存 Catalog を参照し、本文は所有インスタンス固有の情報だけを入れる
+（`id` と `updatedAt` はサーバが採番）。**`catalogId` と `condition` のみ必須**で、他は既定値で
+補完される。`catalogId` が実在しない場合は `400`。
+
+```powershell
+$base = "<API_URL>"
+$body = @{
+  catalogId    = "cat-001"   # 実在する Catalog の id（GET /catalogs で確認）
+  condition    = "A"
+  qty          = 1
+  cost         = 8000
+  market       = 35000
+  marketSource = "manual"
+  store        = "まんだらけ"
+  location     = "本棚A"
+  memo         = "初版・帯揃い。"
+} | ConvertTo-Json
+# 201 + 作成された CollectionItem（Catalog を合成した enriched 形）
+Invoke-RestMethod "$base/collection" -Method Post `
+  -Headers @{ Authorization = "Bearer $token" } `
+  -ContentType "application/json; charset=utf-8" -Body $body
+```
+
+> 未指定時の既定値: `qty=1` / `cost=0` / `market=0` / `marketSource=manual` /
+> `purchaseDate`・`store`・`location`・`memo` は空文字。
+
 #### コレクションを手動で投入する（app テーブル）
 
 API は読み取り専用（GET のみ）なので、データは DynamoDB へ直接入れる。

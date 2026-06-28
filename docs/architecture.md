@@ -25,6 +25,7 @@ lambda/
 │  ├─ domain/                      … 純粋な型とルール（外部依存ゼロ）
 │  │  ├─ collection/
 │  │  │  ├─ CollectionItem.ts      … 所有品1件。openapi.yaml の CollectionItem と一致
+│  │  │  ├─ buildCollectionItem.ts … 所有インスタンス + Catalog → CollectionItem（純粋関数）
 │  │  │  ├─ Condition.ts           … S/A/B/C（market と共有）
 │  │  │  ├─ ConditionFlags.ts      … firstEd/obi/special（market と共有）
 │  │  │  └─ MarketSource.ts        … manual/auto/estimate
@@ -35,11 +36,12 @@ lambda/
 │  │
 │  ├─ application/                 … ユースケースと「ポート」(interface)
 │  │  ├─ ports/
-│  │  │  ├─ CollectionRepository.ts … listByUser(userId): Promise<CollectionItem[]>
+│  │  │  ├─ CollectionRepository.ts … listByUser(userId) / create(userId, id, catalogId, instance)
 │  │  │  ├─ MarketRepository.ts    … listAll(): Promise<MarketRecord[]>
 │  │  │  └─ CatalogRepository.ts   … getMany(ids)（join 用）/ listAll()（一覧 用）
 │  │  └─ usecases/
 │  │     ├─ ListCollection.ts      … repo を呼んで一覧を返す（AWS非依存）
+│  │     ├─ CreateCollection.ts    … catalogId 検証 + 採番して作成（AWS非依存）
 │  │     ├─ ListMarket.ts          … repo を呼んで相場一覧を返す（AWS非依存）
 │  │     └─ ListCatalog.ts         … repo を呼んでカタログ一覧を返す（AWS非依存）
 │  │
@@ -47,13 +49,14 @@ lambda/
 │  │  ├─ http/                     … 入力アダプタ（API Gateway 側）
 │  │  │  ├─ httpResponse.ts        … json() ヘルパー
 │  │  │  ├─ extractUserId.ts       … event の JWT claims から sub を取り出す
-│  │  │  ├─ CollectionController.ts … event → usecase → HTTP応答
+│  │  │  ├─ parseNewCollection.ts  … POST 本文の検証・既定値補完（→ CreateCollectionInput）
+│  │  │  ├─ CollectionController.ts … list（GET）/ create（POST）→ usecase → HTTP応答
 │  │  │  ├─ MarketController.ts     … event → usecase → HTTP応答（userId 不要）
 │  │  │  ├─ CatalogController.ts    … event → usecase → HTTP応答（userId 不要）
 │  │  │  └─ router.ts              … routeKey → controller のディスパッチ
 │  │  └─ persistence/dynamo/       … 出力アダプタ（DynamoDB 側）
 │  │     ├─ dynamoClient.ts        … DocumentClient 生成
-│  │     ├─ collectionRecordMapper.ts … {PK,SK,data} + Catalog → CollectionItem
+│  │     ├─ collectionRecordMapper.ts … {PK,SK,data}⇄保存形。読みは buildCollectionItem に委譲
 │  │     ├─ DynamoCollectionRepository.ts … CollectionRepository の実装（Catalog を join）
 │  │     ├─ marketRecordMapper.ts  … テーブル行 + Catalog → MarketRecord
 │  │     ├─ DynamoMarketRepository.ts … MarketRepository の実装（byNew GSI / Catalog を join）
@@ -141,19 +144,24 @@ Catalog である程度「型」が決まっているので、固有情報だけ
 > `ListCatalog` → `CatalogRepository.listAll`）で提供する。
 > Catalog / Collection を作成する write エンドポイント（`POST /catalogs` 等）は次フェーズ。
 
-## 拡張のしかた（将来の save / delete）
+## 書き込み系の追加例（`POST /collection`）
 
-1. `application/ports/CollectionRepository.ts` にメソッドを追加
-   （例: `save(userId, item)` / `delete(userId, id)`）。
-2. `DynamoCollectionRepository` にその実装を足す。
-3. `application/usecases/` に `SaveCollectionItem` などのユースケースを追加。
-4. `adapters/http/CollectionController.ts` にハンドラを足し、`router.ts` に
-   ルート（`POST /collection` 等）を追加。
-5. API Gateway 側のルート（`terraform/apigateway.tf` の `locals.routes`）と、
-   必要な IAM 権限（`terraform/lambda.tf`）を追加。
+最初の書き込みエンドポイント。読み取りと同じ層構造に沿って次の順で足した。
+今後の `update` / `delete` も同じ流れで拡張できる。
 
-ドメインの型（`CollectionItem`）と保存形（`app` テーブルのキー設計）は
-そのまま流用できる。
+1. ポート `CollectionRepository` に `create(userId, id, catalogId, instance)` を追加。
+2. `DynamoCollectionRepository.create` で `PutItem`（`attribute_not_exists(PK)` で上書き防止）。
+3. ユースケース `CreateCollection`：`catalogId` の実在を `CatalogRepository` で検証し、
+   `id`（uuid）と `updatedAt` を注入関数で採番、保存して enriched な `CollectionItem` を返す。
+4. 入力の検証・既定値補完は `adapters/http/parseNewCollection.ts` に分離（純粋・テスト容易）。
+5. `CollectionController.create` で `parse → usecase → 201/400` に変換、`router.ts` に
+   `POST /collection` を追加。
+6. API Gateway 側のルート（`terraform/apigateway.tf` の `locals.routes`）を追加。
+   IAM は `PutItem` が既に許可済みのため追加不要。
+
+`id` / 時刻はハンドラから注入する（`() => randomUUID()` / `() => Date.now()`）ので、
+ユースケースは決定的にテストできる。書誌×固有の合成は `buildCollectionItem`
+（ドメインの純粋関数）を読み取り・作成で共用する。
 
 ## ビルド / デプロイ
 
