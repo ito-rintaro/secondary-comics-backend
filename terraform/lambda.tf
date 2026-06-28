@@ -29,7 +29,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 # Lets the function access the single-table app store and the market-record table.
 # market-record は一覧ソート用 GSI(byNew/byPrice) を Query するため、テーブル本体に
 # 加えて配下のインデックス ARN("<table>/index/*") も許可する。
-# BatchGetItem は Collection/Market 一覧時に参照 productId 群の Product マスタを
+# BatchGetItem は Collection/Market 一覧時に参照 catalogId 群の Catalog マスタを
 # app テーブルから一括取得（サーバ側 join）するために必要。
 resource "aws_iam_role_policy" "dynamodb" {
   name = "${var.project_name}-dynamodb-access${local.name_suffix}"

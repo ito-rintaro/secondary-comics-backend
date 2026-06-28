@@ -30,14 +30,14 @@ lambda/
 │  │  │  └─ MarketSource.ts        … manual/auto/estimate
 │  │  ├─ market/
 │  │  │  └─ MarketRecord.ts        … 相場1件。openapi.yaml の MarketRecord と一致
-│  │  └─ product/
-│  │     └─ Product.ts             … 書誌のマスタ（型）。Collection/Market が共通参照する hub
+│  │  └─ catalog/
+│  │     └─ Catalog.ts             … 書誌のマスタ（型）。Collection/Market が共通参照する hub
 │  │
 │  ├─ application/                 … ユースケースと「ポート」(interface)
 │  │  ├─ ports/
 │  │  │  ├─ CollectionRepository.ts … listByUser(userId): Promise<CollectionItem[]>
 │  │  │  ├─ MarketRepository.ts    … listAll(): Promise<MarketRecord[]>
-│  │  │  └─ ProductRepository.ts   … getMany(ids): Promise<Map<id, Product>>
+│  │  │  └─ CatalogRepository.ts   … getMany(ids): Promise<Map<id, Catalog>>
 │  │  └─ usecases/
 │  │     ├─ ListCollection.ts      … repo を呼んで一覧を返す（AWS非依存）
 │  │     └─ ListMarket.ts          … repo を呼んで相場一覧を返す（AWS非依存）
@@ -51,12 +51,12 @@ lambda/
 │  │  │  └─ router.ts              … routeKey → controller のディスパッチ
 │  │  └─ persistence/dynamo/       … 出力アダプタ（DynamoDB 側）
 │  │     ├─ dynamoClient.ts        … DocumentClient 生成
-│  │     ├─ collectionRecordMapper.ts … {PK,SK,data} + Product → CollectionItem
-│  │     ├─ DynamoCollectionRepository.ts … CollectionRepository の実装（Product を join）
-│  │     ├─ marketRecordMapper.ts  … テーブル行 + Product → MarketRecord
-│  │     ├─ DynamoMarketRepository.ts … MarketRepository の実装（byNew GSI / Product を join）
-│  │     ├─ productRecordMapper.ts … {PK,SK,data} ⇄ Product（PK=PRODUCT / SK=PRODUCT#<id>）
-│  │     └─ DynamoProductRepository.ts … ProductRepository の実装（BatchGetItem）
+│  │     ├─ collectionRecordMapper.ts … {PK,SK,data} + Catalog → CollectionItem
+│  │     ├─ DynamoCollectionRepository.ts … CollectionRepository の実装（Catalog を join）
+│  │     ├─ marketRecordMapper.ts  … テーブル行 + Catalog → MarketRecord
+│  │     ├─ DynamoMarketRepository.ts … MarketRepository の実装（byNew GSI / Catalog を join）
+│  │     ├─ catalogRecordMapper.ts … {PK,SK,data} ⇄ Catalog（PK=CATALOG / SK=CATALOG#<id>）
+│  │     └─ DynamoCatalogRepository.ts … CatalogRepository の実装（BatchGetItem）
 │  │
 │  ├─ config/
 │  │  └─ env.ts                    … 環境変数(APP_TABLE_NAME / MARKET_TABLE_NAME)の読み取りを一元化
@@ -111,32 +111,32 @@ DynamoDB 依存は `DynamoCollectionRepository` と `collectionRecordMapper` の
 並び順（新着/値上がり等）はフロント側で行うため、サーバーは生の配列を返す。
 `Condition` / `ConditionFlags` は `domain/collection` の型を再利用している。
 
-## Product マスタ（書誌の正規化 hub）
+## Catalog マスタ（書誌の正規化 hub）
 
 `CollectionEntry` と `MarketRecord` は、以前は書誌情報
 （`title` / `author` / `publisher` / `volume` / `year` / `flags` / `imageUrl`）を
-各レコードに重複して持っていた。これを **Product** マスタへ正規化し、各レコードは
-`productId` で参照するだけにした。新規 CollectionEntry / MarketRecord を作る際は、
-Product である程度「型」が決まっているので、固有情報だけ足せばよい。
+各レコードに重複して持っていた。これを **Catalog** マスタへ正規化し、各レコードは
+`catalogId` で参照するだけにした。新規 CollectionEntry / MarketRecord を作る際は、
+Catalog である程度「型」が決まっているので、固有情報だけ足せばよい。
 
 | 種別 | 役割 | 主な固有属性 |
 |------|------|--------------|
-| `Product` | 書誌のマスタ（型・hub） | title / author / publisher / volume / year / flags / imageUrl |
-| `CollectionEntry` | 所有インスタンス | productId + condition / qty / cost / 購入情報 / memo |
-| `MarketRecord` | 出品 | productId + seller / price / history / change / listedAt |
+| `Catalog` | 書誌のマスタ（型・hub） | title / author / publisher / volume / year / flags / imageUrl |
+| `CollectionEntry` | 所有インスタンス | catalogId + condition / qty / cost / 購入情報 / memo |
+| `MarketRecord` | 出品 | catalogId + seller / price / history / change / listedAt |
 
-保存形（`app` 単一テーブル・アイテムコレクション型）: `PK="PRODUCT"`（固定）,
-`SK="PRODUCT#<id>"`, `data={書誌}`。全 Product が単一パーティション `PK="PRODUCT"` に
+保存形（`app` 単一テーブル・アイテムコレクション型）: `PK="CATALOG"`（固定）,
+`SK="CATALOG#<id>"`, `data={書誌}`。全 Catalog が単一パーティション `PK="CATALOG"` に
 束ねられるので、PK を Query すれば全件取得・SK 指定で個別取得できる。
 
 **API 応答は正規化前と同一**（破壊的変更なし）。`DynamoCollectionRepository` /
-`DynamoMarketRepository` が一覧取得時に参照 `productId` を集め、
-`ProductRepository.getMany`（`BatchGetItem`）で一括取得して**サーバ側で join** し、
+`DynamoMarketRepository` が一覧取得時に参照 `catalogId` を集め、
+`CatalogRepository.getMany`（`BatchGetItem`）で一括取得して**サーバ側で join** し、
 従来どおり書誌入りの `CollectionItem` / `MarketRecord` を組み立てて返す。
-参照先 Product が無い行は空プレースホルダ（`emptyProduct`）で contract を満たす。
+参照先 Catalog が無い行は空プレースホルダ（`emptyCatalog`）で contract を満たす。
 
-> このフェーズは正規化基盤と読み取り（join）まで。Product / Collection を作成する
-> write エンドポイント（`POST /products` 等）は次フェーズで追加する。
+> このフェーズは正規化基盤と読み取り（join）まで。Catalog / Collection を作成する
+> write エンドポイント（`POST /catalogs` 等）は次フェーズで追加する。
 
 ## 拡張のしかた（将来の save / delete）
 

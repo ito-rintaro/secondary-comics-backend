@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Seed test data into the design tables (Product/Collection/MarketRecord).",
+  "description": "Seed test data into the design tables (Catalog/Collection/MarketRecord).",
   "scripts": {
     "seed": "node seed.mjs"
   },

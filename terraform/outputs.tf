@@ -14,7 +14,7 @@ output "market_record_table_name" {
 }
 
 output "app_table_name" {
-  description = "Single table for Product / Collection"
+  description = "Single table for Catalog / Collection"
   value       = aws_dynamodb_table.app.name
 }
 

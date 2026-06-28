@@ -90,32 +90,32 @@ API は読み取り専用（GET のみ）なので、データは DynamoDB へ�
 **1 件 = 1 レコード**で、キー以外は `data`（Map）にまとめる（属性を増やさないため）。
 
 書誌（`title` / `author` / `publisher` / `volume` / `year` / `flags` / `imageUrl`）は
-**Product マスタ（`PK="PRODUCT"` / `SK="PRODUCT#<id>"`）に正規化**されており、コレクションは
-それを `productId` で参照し、**所有インスタンス固有の情報だけ**を持つ。
-→ **先に対象の Product を投入してから**コレクションを入れること（Product が
+**Catalog マスタ（`PK="CATALOG"` / `SK="CATALOG#<id>"`）に正規化**されており、コレクションは
+それを `catalogId` で参照し、**所有インスタンス固有の情報だけ**を持つ。
+→ **先に対象の Catalog を投入してから**コレクションを入れること（Catalog が
 無いと、API 応答で書誌・画像が空になる）。
 
 | 属性 | 値 |
 |---|---|
 | `PK` | `USER#<Cognito の sub>` |
 | `SK` | `COLLECTION#<コレクションの id>` |
-| `data` | `productId`（参照する Product）＋ 固有情報（`condition` / `qty` / `cost` / `market` / `marketSource` / `purchaseDate` / `store` / `location` / `memo` / `updatedAt`） |
+| `data` | `catalogId`（参照する Catalog）＋ 固有情報（`condition` / `qty` / `cost` / `market` / `marketSource` / `purchaseDate` / `store` / `location` / `memo` / `updatedAt`） |
 
 > `id` はレコードには持たせず、`SK` の `COLLECTION#` を除いた値がそのまま API の `id` になる。
-> 書誌・画像は、サーバが `productId` から Product を引いて合成し応答に載せる（サーバ側 join）。
+> 書誌・画像は、サーバが `catalogId` から Catalog を引いて合成し応答に載せる（サーバ側 join）。
 > `<sub>` は対象ユーザーの Cognito `sub`（`aws cognito-idp admin-get-user ...` の `sub` 属性で確認）。
 
 AWS CLI での投入例（`<App テーブル名>` は `terraform output app_table_name`）:
 
 ```powershell
 $app = (terraform -chdir=terraform output -raw app_table_name)
-# 1) Product マスタ（書誌の型＝hub。複数のコレクション/マーケットで共有できる）
+# 1) Catalog マスタ（書誌の型＝hub。複数のコレクション/マーケットで共有できる）
 aws dynamodb put-item --table-name $app --item (@'
 {
-  "PK":   {"S": "PRODUCT"},
-  "SK":   {"S": "PRODUCT#prod_akira_obi"},
+  "PK":   {"S": "CATALOG"},
+  "SK":   {"S": "CATALOG#cat_akira_obi"},
   "data": {"M": {
-    "entityType": {"S": "Product"},
+    "entityType": {"S": "Catalog"},
     "title":      {"S": "AKIRA 全6巻 初版帯付セット"},
     "author":     {"S": "大友克洋"},
     "publisher":  {"S": "講談社 / KCデラックス"},
@@ -127,14 +127,14 @@ aws dynamodb put-item --table-name $app --item (@'
 }
 '@ -replace '\r','')
 
-# 2) Collection（productId で Product を参照。書誌は持たず固有情報のみ）
+# 2) Collection（catalogId で Catalog を参照。書誌は持たず固有情報のみ）
 aws dynamodb put-item --table-name $app --item (@'
 {
   "PK":   {"S": "USER#<sub>"},
   "SK":   {"S": "COLLECTION#seed0"},
   "data": {"M": {
     "entityType":   {"S": "CollectionItem"},
-    "productId":    {"S": "prod_akira_obi"},
+    "catalogId":    {"S": "cat_akira_obi"},
     "condition":    {"S": "A"},
     "qty":          {"N": "1"},
     "cost":         {"N": "8000"},
@@ -174,15 +174,15 @@ API は読み取り専用（GET のみ）なので、データは DynamoDB へ�
 全件を一覧取得できるよう、**`gsiPk` は必ず `"RECORD"` 固定**にする。
 
 書誌（`title` / `author` / `publisher` / `volume` / `flags` / `imageUrl`）は
-**Product マスタに正規化**済みで、ここでは持たず `productId` で参照する。
-→ **先に対象の Product を投入してから**入れること（前項のコレクション例の
-Product 投入を参照。Product が無いと書誌・画像が空で返る）。
+**Catalog マスタに正規化**済みで、ここでは持たず `catalogId` で参照する。
+→ **先に対象の Catalog を投入してから**入れること（前項のコレクション例の
+Catalog 投入を参照。Catalog が無いと書誌・画像が空で返る）。
 
 | 属性 | 値 |
 |---|---|
 | `marketRecordId` | レコードの id（= API の `id`） |
 | `gsiPk` | `"RECORD"` 固定（GSI で全件を 1 束にまとめる） |
-| `productId` | 参照する Product の id（実体は `PK="PRODUCT"` / `SK="PRODUCT#<id>"`） |
+| `catalogId` | 参照する Catalog の id（実体は `PK="CATALOG"` / `SK="CATALOG#<id>"`） |
 | `seller` | 出品者 / ショップ名 |
 | `condition` | `S` / `A` / `B` / `C` |
 | `history` | 価格推移（円）の配列。要素数 12・末尾が現在価格 |
@@ -190,18 +190,18 @@ Product 投入を参照。Product が無いと書誌・画像が空で返る）�
 | `change` | 期間変化率 `(末尾 - 先頭) / 先頭`（例: `0.18`） |
 | `listedAt` | 新着ソート用の数値（大きいほど新しい。GSI `byNew` のキー） |
 
-> 書誌・画像は Product 側に持つ。`imageUrl` の規約は [画像（S3 + CloudFront）](#画像s3--cloudfront) を参照。
+> 書誌・画像は Catalog 側に持つ。`imageUrl` の規約は [画像（S3 + CloudFront）](#画像s3--cloudfront) を参照。
 
 AWS CLI での投入例（`<Market テーブル名>` は `terraform output market_record_table_name`）:
 
 ```powershell
 $mr = (terraform -chdir=terraform output -raw market_record_table_name)
-# Product（PK="PRODUCT" / SK="PRODUCT#prod_akira_obi"）は投入済みである前提。
+# Catalog（PK="CATALOG" / SK="CATALOG#cat_akira_obi"）は投入済みである前提。
 aws dynamodb put-item --table-name $mr --item (@'
 {
   "marketRecordId": {"S": "mk0"},
   "gsiPk":          {"S": "RECORD"},
-  "productId":      {"S": "prod_akira_obi"},
+  "catalogId":      {"S": "cat_akira_obi"},
   "seller":         {"S": "コレクター田中"},
   "condition":      {"S": "A"},
   "history":        {"L": [
@@ -217,11 +217,11 @@ aws dynamodb put-item --table-name $mr --item (@'
 ```
 
 > `gsiPk` を付け忘れると `byNew` GSI に載らず、`GET /market` の結果に出てこないので注意。
-> `productId` が指す Product が無いと、書誌・画像が空のレコードとして返る。
+> `catalogId` が指す Catalog が無いと、書誌・画像が空のレコードとして返る。
 
 ## 画像（S3 + CloudFront）
 
-Product（コレクション / マーケットが `productId` で参照）の `imageUrl` 用の画像は、
+Catalog（コレクション / マーケットが `catalogId` で参照）の `imageUrl` 用の画像は、
 専用の S3 バケットに置き、**CloudFront 経由**でフロントに配信する
 （バケット自体は非公開。OAC で CloudFront からのみ読める）。
 Terraform 定義は `terraform/assets.tf`。
@@ -233,7 +233,7 @@ Terraform 定義は `terraform/assets.tf`。
 
 ### `imageUrl` の値の規約
 
-- Product の `imageUrl`（DynamoDB）は**ファイル名のみ**（例 `akira_vol1.jpg`）。`images/` やドメインは含めない。
+- Catalog の `imageUrl`（DynamoDB）は**ファイル名のみ**（例 `akira_vol1.jpg`）。`images/` やドメインは含めない。
 - S3 へは **`images/<ファイル名>`** のキーでアップロードする。
 - フロントが配信ドメイン + `/images/` を前置して `https://<cdn>/images/<ファイル名>` を組み立てて表示する。
 - 未設定・空文字可。サーバーは未設定なら `imageUrl: ""` を返す（API は壊れない）。
@@ -255,19 +255,19 @@ aws s3 cp .\akira_vol1.jpg "s3://$bucket/images/akira_vol1.jpg"
 
 | テーブル | 内容 | キー |
 |---|---|---|
-| `market-record` | 相場レコード（独立。GSI あり）。書誌は `productId` で `app` の Product を参照 | PK=`marketRecordId` |
-| `app`（単一テーブル） | Product / Collection をまとめて管理 | PK / SK |
+| `market-record` | 相場レコード（独立。GSI あり）。書誌は `catalogId` で `app` の Catalog を参照 | PK=`marketRecordId` |
+| `app`（単一テーブル） | Catalog / Collection をまとめて管理 | PK / SK |
 
 `app` のキー設計（型プレフィックスで同居）:
 
 | 種類 | PK | SK |
 |---|---|---|
-| Product | `PRODUCT`（固定） | `PRODUCT#<productId>` |
+| Catalog | `CATALOG`（固定） | `CATALOG#<catalogId>` |
 | Collection | `USER#<userId>` | `COLLECTION#<itemId>` |
 
-> Product は書誌（title/author/publisher/volume/year/flags/imageUrl）の **マスタ＝hub**。
-> Collection / MarketRecord は `productId` で参照し、固有情報だけを持つ（正規化）。
-> 一覧取得時はサーバが `productId` から Product を `BatchGetItem` で引いて合成して返す。
+> Catalog は書誌（title/author/publisher/volume/year/flags/imageUrl）の **マスタ＝hub**。
+> Collection / MarketRecord は `catalogId` で参照し、固有情報だけを持つ（正規化）。
+> 一覧取得時はサーバが `catalogId` から Catalog を `BatchGetItem` で引いて合成して返す。
 
 各アイテムは **`PK` / `SK` ＋ `data`（ネスト Map）** の形。
 `PK`/`SK` 以外の中身はすべて `data` の中に入れる（SDK が JS オブジェクト ⇄ Map を自動変換）。
@@ -303,9 +303,9 @@ $pk  = "USER#<sub>"
 aws dynamodb query --table-name $app `
   --key-condition-expression "PK = :pk AND begins_with(SK, :i)" `
   --expression-attribute-values "{\":pk\":{\"S\":\"$pk\"},\":i\":{\"S\":\"COLLECTION#\"}}"
-# Product 全件（item-collection。PK 固定で1発取得）
+# Catalog 全件（item-collection。PK 固定で1発取得）
 aws dynamodb query --table-name $app --key-condition-expression "PK = :pk" `
-  --expression-attribute-values '{\":pk\":{\"S\":\"PRODUCT\"}}'
+  --expression-attribute-values '{\":pk\":{\"S\":\"CATALOG\"}}'
 ```
 
 > テーブル名は `terraform output` から自動取得するため、対象 workspace を選んでから実行する。
