@@ -12,7 +12,13 @@ import { randomUUID } from "node:crypto";
 import { ListCollection } from "./application/usecases/ListCollection";
 import { CreateCollection } from "./application/usecases/CreateCollection";
 import { ListMarket } from "./application/usecases/ListMarket";
+import { CreateMarket } from "./application/usecases/CreateMarket";
+import { UpdateMarket } from "./application/usecases/UpdateMarket";
+import { DeleteMarket } from "./application/usecases/DeleteMarket";
 import { ListCatalog } from "./application/usecases/ListCatalog";
+import { CreateCatalog } from "./application/usecases/CreateCatalog";
+import { UpdateCatalog } from "./application/usecases/UpdateCatalog";
+import { DeleteCatalog } from "./application/usecases/DeleteCatalog";
 import { CollectionController } from "./adapters/http/CollectionController";
 import { MarketController } from "./adapters/http/MarketController";
 import { CatalogController } from "./adapters/http/CatalogController";
@@ -54,10 +60,34 @@ const marketRepo = new DynamoMarketRepository(
   catalogRepo,
 );
 const listMarket = new ListMarket(marketRepo);
-const marketController = new MarketController(listMarket);
+// 編集系: catalogId の実在検証(catalogRepo)を挟み、id/listedAt はここで採番する。
+// price/change は保存側で history から導出する（入力には含めない）。
+const createMarket = new CreateMarket(
+  marketRepo,
+  catalogRepo,
+  () => `mk-${randomUUID()}`,
+  () => Date.now(),
+);
+const updateMarket = new UpdateMarket(marketRepo, catalogRepo);
+const deleteMarket = new DeleteMarket(marketRepo);
+const marketController = new MarketController(
+  listMarket,
+  createMarket,
+  updateMarket,
+  deleteMarket,
+);
 // Catalog 一覧は catalogRepo を再利用（PK="CATALOG" の Query で全件取得）。
 const listCatalog = new ListCatalog(catalogRepo);
-const catalogController = new CatalogController(listCatalog);
+// 編集系: id はここで採番する（"cat-<uuid>"）。
+const createCatalog = new CreateCatalog(catalogRepo, () => `cat-${randomUUID()}`);
+const updateCatalog = new UpdateCatalog(catalogRepo);
+const deleteCatalog = new DeleteCatalog(catalogRepo);
+const catalogController = new CatalogController(
+  listCatalog,
+  createCatalog,
+  updateCatalog,
+  deleteCatalog,
+);
 const router = new Router(
   collectionController,
   marketController,

@@ -41,7 +41,15 @@ locals {
     "GET /collection",
     "POST /collection",
     "GET /market",
+    # market の編集系（要 editor グループ。認可は Lambda 側で強制）
+    "POST /market",
+    "PUT /market/{id}",
+    "DELETE /market/{id}",
     "GET /catalogs",
+    # catalog の編集系（要 editor グループ。認可は Lambda 側で強制）
+    "POST /catalogs",
+    "PUT /catalogs/{id}",
+    "DELETE /catalogs/{id}",
   ]
 }
 

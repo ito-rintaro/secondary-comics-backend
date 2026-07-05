@@ -122,6 +122,141 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+    post:
+      operationId: createMarket
+      summary: マーケット相場を 1 件追加（要 editor 権限）
+      description: |
+        新規の MarketRecord を 1 件作成する。書誌は catalogId で既存の Catalog を
+        参照し、本文には出品固有の情報（seller/condition/history）だけを入れる。
+        price / change は history から導出し、id / listedAt はサーバが採番する。
+        Cognito の "editor" グループに所属するユーザーのみ実行可能（未所属は 403）。
+      tags: [market]
+      security:
+        - cognito: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewMarketInput'
+      responses:
+        '201':
+          description: 作成された MarketRecord（Catalog を合成した形）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketRecord'
+        '400':
+          description: 入力不正（catalogId 不在 / history が12要素でない など）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 権限なし（editor グループ未所属）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /market/{id}:
+    put:
+      operationId: updateMarket
+      summary: マーケット相場を更新（要 editor 権限）
+      description: |
+        既存の MarketRecord を更新する。可変項目（catalogId/seller/condition/history）
+        を置き換え、price/change は history から再導出する。listedAt は保持される。
+        "editor" グループ所属が必須（未所属は 403）。
+      tags: [market]
+      security:
+        - cognito: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 対象 MarketRecord の id
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewMarketInput'
+      responses:
+        '200':
+          description: 更新後の MarketRecord
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketRecord'
+        '400':
+          description: 入力不正（catalogId 不在 / history が12要素でない など）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 権限なし（editor グループ未所属）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 指定 id の MarketRecord が存在しない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      operationId: deleteMarket
+      summary: マーケット相場を削除（要 editor 権限）
+      description: |
+        指定 id の MarketRecord を削除する。"editor" グループ所属が必須（未所属は 403）。
+      tags: [market]
+      security:
+        - cognito: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 対象 MarketRecord の id
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 削除成功（本文なし）
+        '401':
+          description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 権限なし（editor グループ未所属）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 指定 id の MarketRecord が存在しない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /catalogs:
     get:
       operationId: listCatalogs
@@ -148,6 +283,140 @@ paths:
                   $ref: '#/components/examples/CatalogList'
         '401':
           description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      operationId: createCatalog
+      summary: カタログ（書誌マスタ）を 1 件追加（要 editor 権限）
+      description: |
+        新規の Catalog を 1 件作成する。id はサーバが採番する（cat-xxx）。
+        title のみ必須で、他は既定値で補完する。
+        Cognito の "editor" グループに所属するユーザーのみ実行可能（未所属は 403）。
+      tags: [catalog]
+      security:
+        - cognito: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewCatalogInput'
+      responses:
+        '201':
+          description: 作成された Catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Catalog'
+        '400':
+          description: 入力不正（title 欠落 / 型不正 / JSON 不正など）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 権限なし（editor グループ未所属）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /catalogs/{id}:
+    put:
+      operationId: updateCatalog
+      summary: カタログを更新（要 editor 権限）
+      description: |
+        既存の Catalog を丸ごと更新する。title のみ必須で、他は既定値で補完する。
+        "editor" グループ所属が必須（未所属は 403）。
+      tags: [catalog]
+      security:
+        - cognito: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 対象 Catalog の id
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewCatalogInput'
+      responses:
+        '200':
+          description: 更新後の Catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Catalog'
+        '400':
+          description: 入力不正（title 欠落 / 型不正 / JSON 不正など）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 権限なし（editor グループ未所属）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 指定 id の Catalog が存在しない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      operationId: deleteCatalog
+      summary: カタログを削除（要 editor 権限）
+      description: |
+        指定 id の Catalog を削除する。"editor" グループ所属が必須（未所属は 403）。
+        参照している Collection / MarketRecord がある場合の整合はフロント運用で担保する。
+      tags: [catalog]
+      security:
+        - cognito: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 対象 Catalog の id
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 削除成功（本文なし）
+        '401':
+          description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 権限なし（editor グループ未所属）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 指定 id の Catalog が存在しない
           content:
             application/json:
               schema:
@@ -464,6 +733,67 @@ components:
             画像の S3 オブジェクトキー（ファイル名のみ。例: "xxx.jpg"）。
             実体は CloudFront 配下の images/ に置かれ、フロントが
             CloudFront ドメイン + "/images/" を前置して表示する。空文字可。
+          example: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
+
+    # POST /market・PUT /market/{id} のリクエストボディ。
+    # 書誌は catalogId で参照し、出品固有情報だけを持つ。price / change は history から
+    # 導出、id / listedAt はサーバ採番のため含めない。
+    NewMarketInput:
+      type: object
+      required: [catalogId, condition, history]
+      properties:
+        catalogId:
+          type: string
+          description: 参照する Catalog の id（実在必須。無ければ 400）
+          example: cat-001
+        seller:
+          type: string
+          default: ''
+          description: 出品者 / ショップ名（既定 空文字）
+          example: コレクター田中
+        condition:
+          $ref: '#/components/schemas/Condition'
+        history:
+          type: array
+          description: 直近12ヶ月の価格推移（円）。要素数ちょうど 12・各要素は 0 以上の整数。
+          items:
+            type: integer
+            minimum: 0
+          minItems: 12
+          maxItems: 12
+          example: [30000, 30500, 31000, 31800, 32500, 33000, 33600, 34200, 34800, 35100, 35400, 35400]
+
+    # POST /catalogs・PUT /catalogs/{id} のリクエストボディ。
+    # id はサーバ採番（cat-xxx）のため含めない。title のみ必須、他は既定値で補完する。
+    NewCatalogInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          example: AKIRA 全6巻 初版帯付セット
+        author:
+          type: string
+          default: ''
+          example: 大友克洋
+        publisher:
+          type: string
+          default: ''
+          example: 講談社 / KCデラックス
+        volume:
+          type: string
+          default: ''
+          example: 全6巻
+        year:
+          type: string
+          default: ''
+          example: '1984'
+        flags:
+          $ref: '#/components/schemas/ConditionFlags'
+        imageUrl:
+          type: string
+          default: ''
+          description: 画像の S3 オブジェクトキー（ファイル名のみ。空文字可）。
           example: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
 
     Error:

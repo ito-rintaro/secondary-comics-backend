@@ -17,6 +17,18 @@ resource "aws_cognito_user_pool" "main" {
   }
 }
 
+# market / catalog の編集（作成・更新・削除）を許可するユーザーのグループ。
+# このグループに入れたユーザーの JWT には cognito:groups=["editor"] が載り、
+# Lambda 側（requireEditor）が編集系エンドポイントで所属を検証する。
+# ユーザーの追加:
+#   aws cognito-idp admin-add-user-to-group \
+#     --user-pool-id <pool_id> --username <email> --group-name editor
+resource "aws_cognito_user_group" "editor" {
+  name         = "editor"
+  user_pool_id = aws_cognito_user_pool.main.id
+  description  = "market/catalog データの編集を許可されたユーザー"
+}
+
 # アプリがトークンを発行してもらうための窓口（App Client）。
 resource "aws_cognito_user_pool_client" "main" {
   name         = "${var.project_name}-app-client${local.name_suffix}"

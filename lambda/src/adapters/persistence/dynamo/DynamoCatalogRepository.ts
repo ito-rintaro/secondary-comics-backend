@@ -1,10 +1,15 @@
 import {
   BatchGetCommand,
   QueryCommand,
+  PutCommand,
+  DeleteCommand,
   type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
 import type { Catalog } from "../../../domain/catalog/Catalog";
-import type { CatalogRepository } from "../../../application/ports/CatalogRepository";
+import type {
+  CatalogInput,
+  CatalogRepository,
+} from "../../../application/ports/CatalogRepository";
 import {
   CATALOG_PK,
   catalogSk,
@@ -12,10 +17,14 @@ import {
   type CatalogRecord,
 } from "./catalogRecordMapper";
 
-// 単一テーブル app から Catalog マスタを読む CatalogRepository の実装。
+// 単一テーブル app から Catalog マスタを読み書きする CatalogRepository の実装。
 // 一覧取得で集めた catalogId 群を BatchGetItem でまとめて引く（N+1 を避ける）。
 // BatchGetItem は 1 回あたり 100 キーまでのため 100 件ずつに分割する。
 const BATCH_LIMIT = 100;
+
+// 存在制御（attribute_not_exists / attribute_exists）に失敗したときに
+// DynamoDB が返す例外名。create の衝突・update/remove の不在判定に使う。
+const CONDITIONAL_FAILED = "ConditionalCheckFailedException";
 
 export class DynamoCatalogRepository implements CatalogRepository {
   constructor(
@@ -73,5 +82,51 @@ export class DynamoCatalogRepository implements CatalogRepository {
       ExclusiveStartKey = res.LastEvaluatedKey;
     } while (ExclusiveStartKey);
     return items;
+  }
+
+  // 新規 Catalog を保存する。同一キーが既にあれば上書きせず失敗させる。
+  async create(id: string, input: CatalogInput): Promise<Catalog> {
+    await this.ddb.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: { PK: CATALOG_PK, SK: catalogSk(id), data: input },
+        ConditionExpression: "attribute_not_exists(PK)",
+      }),
+    );
+    return { id, ...input };
+  }
+
+  // 既存 Catalog を丸ごと置き換える。存在しなければ null（呼び出し側で 404）。
+  async update(id: string, input: CatalogInput): Promise<Catalog | null> {
+    try {
+      await this.ddb.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: { PK: CATALOG_PK, SK: catalogSk(id), data: input },
+          ConditionExpression: "attribute_exists(PK)",
+        }),
+      );
+      return { id, ...input };
+    } catch (err) {
+      if ((err as Error).name === CONDITIONAL_FAILED) return null;
+      throw err;
+    }
+  }
+
+  // Catalog を削除する。元々存在しなければ false。
+  async remove(id: string): Promise<boolean> {
+    try {
+      await this.ddb.send(
+        new DeleteCommand({
+          TableName: this.tableName,
+          Key: { PK: CATALOG_PK, SK: catalogSk(id) },
+          ConditionExpression: "attribute_exists(PK)",
+        }),
+      );
+      return true;
+    } catch (err) {
+      if ((err as Error).name === CONDITIONAL_FAILED) return false;
+      throw err;
+    }
   }
 }
