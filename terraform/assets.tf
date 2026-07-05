@@ -48,6 +48,16 @@ resource "aws_s3_bucket_cors_configuration" "assets" {
     allowed_headers = ["*"]
     max_age_seconds = 3600
   }
+
+  # 画像アップロード（署名付き PUT）用。admin フロントのオリジンから
+  # 直接 S3 へ PUT できるようにする。
+  cors_rule {
+    allowed_methods = ["PUT"]
+    allowed_origins = concat(var.allowed_origins, [local.admin_web_origin])
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
 }
 
 # --- CloudFront から S3 へアクセスするための OAC ---

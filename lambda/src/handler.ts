@@ -4,6 +4,8 @@ import type {
 } from "aws-lambda";
 import { loadEnv } from "./config/env";
 import { createDocumentClient } from "./adapters/persistence/dynamo/dynamoClient";
+import { createS3Client } from "./adapters/persistence/s3/s3Client";
+import { S3PresignedUploadStore } from "./adapters/persistence/s3/S3PresignedUploadStore";
 import { DynamoCollectionRepository } from "./adapters/persistence/dynamo/DynamoCollectionRepository";
 import { DynamoMarketRepository } from "./adapters/persistence/dynamo/DynamoMarketRepository";
 import { DynamoCatalogRepository } from "./adapters/persistence/dynamo/DynamoCatalogRepository";
@@ -19,9 +21,11 @@ import { ListCatalog } from "./application/usecases/ListCatalog";
 import { CreateCatalog } from "./application/usecases/CreateCatalog";
 import { UpdateCatalog } from "./application/usecases/UpdateCatalog";
 import { DeleteCatalog } from "./application/usecases/DeleteCatalog";
+import { CreateUploadUrl } from "./application/usecases/CreateUploadUrl";
 import { CollectionController } from "./adapters/http/CollectionController";
 import { MarketController } from "./adapters/http/MarketController";
 import { CatalogController } from "./adapters/http/CatalogController";
+import { UploadController } from "./adapters/http/UploadController";
 import { Router } from "./adapters/http/router";
 import { json } from "./adapters/http/httpResponse";
 
@@ -88,10 +92,19 @@ const catalogController = new CatalogController(
   updateCatalog,
   deleteCatalog,
 );
+// 画像アップロード: assets バケットの images/ 配下への署名付き PUT URL を発行する。
+// キーはここで採番（uuid + 拡張子は usecase 側）、署名の有効期限は 300 秒。
+const uploadStore = new S3PresignedUploadStore(
+  createS3Client(),
+  env.assetsBucketName,
+);
+const createUploadUrl = new CreateUploadUrl(uploadStore, () => randomUUID(), 300);
+const uploadController = new UploadController(createUploadUrl);
 const router = new Router(
   collectionController,
   marketController,
   catalogController,
+  uploadController,
 );
 
 export const handler = async (

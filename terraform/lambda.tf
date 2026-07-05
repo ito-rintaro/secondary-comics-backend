@@ -57,6 +57,23 @@ resource "aws_iam_role_policy" "dynamodb" {
   })
 }
 
+# 画像アップロード（署名付き PUT）用。assets バケットの images/ 配下限定で PutObject を許可。
+# 署名を発行するだけの Lambda 自身も、その ContentType/Key で書ける権限が必要
+# （署名は呼び出し側の権限を引き継ぐため）。他プレフィックスには触れない最小権限。
+resource "aws_iam_role_policy" "s3_uploads" {
+  name = "${var.project_name}-s3-uploads${local.name_suffix}"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:PutObject"]
+      Resource = ["${aws_s3_bucket.assets.arn}/images/*"]
+    }]
+  })
+}
+
 resource "aws_lambda_function" "api" {
   function_name    = "${var.project_name}-api${local.name_suffix}"
   role             = aws_iam_role.lambda.arn
@@ -68,8 +85,9 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      APP_TABLE_NAME    = aws_dynamodb_table.app.name
-      MARKET_TABLE_NAME = aws_dynamodb_table.market_record.name
+      APP_TABLE_NAME     = aws_dynamodb_table.app.name
+      MARKET_TABLE_NAME  = aws_dynamodb_table.market_record.name
+      ASSETS_BUCKET_NAME = aws_s3_bucket.assets.bucket
     }
   }
 
