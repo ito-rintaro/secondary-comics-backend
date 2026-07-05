@@ -8,6 +8,7 @@ resource "aws_apigatewayv2_api" "http" {
   cors_configuration {
     allow_origins = concat(var.allowed_origins, [
       "https://${var.project_name}-web${local.name_suffix}.s3.${var.region}.amazonaws.com",
+      local.admin_web_origin,
     ])
     allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers = ["authorization", "content-type"]
@@ -50,6 +51,8 @@ locals {
     "POST /catalogs",
     "PUT /catalogs/{id}",
     "DELETE /catalogs/{id}",
+    # 画像アップロード用の署名付き PUT URL 発行（要 editor グループ）
+    "POST /uploads",
   ]
 }
 

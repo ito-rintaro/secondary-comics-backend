@@ -2,6 +2,7 @@
 export interface Env {
   appTableName: string;
   marketTableName: string;
+  assetsBucketName: string;
 }
 
 export const loadEnv = (): Env => {
@@ -13,5 +14,9 @@ export const loadEnv = (): Env => {
   if (!marketTableName) {
     throw new Error("MARKET_TABLE_NAME environment variable is not set");
   }
-  return { appTableName, marketTableName };
+  const assetsBucketName = process.env.ASSETS_BUCKET_NAME;
+  if (!assetsBucketName) {
+    throw new Error("ASSETS_BUCKET_NAME environment variable is not set");
+  }
+  return { appTableName, marketTableName, assetsBucketName };
 };

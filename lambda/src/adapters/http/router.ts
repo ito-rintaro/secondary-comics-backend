@@ -2,6 +2,7 @@ import type { APIGatewayProxyEventV2WithJWTAuthorizer } from "aws-lambda";
 import type { CollectionController } from "./CollectionController";
 import type { MarketController } from "./MarketController";
 import type { CatalogController } from "./CatalogController";
+import type { UploadController } from "./UploadController";
 import { json, type HttpResponse } from "./httpResponse";
 
 // routeKey（例: "GET /collection"）に応じて適切な処理へ振り分ける。
@@ -10,6 +11,7 @@ export class Router {
     private readonly collection: CollectionController,
     private readonly market: MarketController,
     private readonly catalog: CatalogController,
+    private readonly upload: UploadController,
   ) {}
 
   async handle(
@@ -39,6 +41,8 @@ export class Router {
         return this.catalog.update(event);
       case "DELETE /catalogs/{id}":
         return this.catalog.remove(event);
+      case "POST /uploads":
+        return this.upload.create(event);
       default:
         return json(404, { message: `no route for ${event.routeKey}` });
     }
