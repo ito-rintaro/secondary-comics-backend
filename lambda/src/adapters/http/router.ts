@@ -25,8 +25,20 @@ export class Router {
         return this.collection.create(event);
       case "GET /market":
         return this.market.list(event);
+      case "POST /market":
+        return this.market.create(event);
+      case "PUT /market/{id}":
+        return this.market.update(event);
+      case "DELETE /market/{id}":
+        return this.market.remove(event);
       case "GET /catalogs":
         return this.catalog.list(event);
+      case "POST /catalogs":
+        return this.catalog.create(event);
+      case "PUT /catalogs/{id}":
+        return this.catalog.update(event);
+      case "DELETE /catalogs/{id}":
+        return this.catalog.remove(event);
       default:
         return json(404, { message: `no route for ${event.routeKey}` });
     }

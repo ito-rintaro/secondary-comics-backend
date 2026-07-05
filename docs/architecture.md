@@ -30,39 +30,47 @@ lambda/
 │  │  │  ├─ ConditionFlags.ts      … firstEd/obi/special（market と共有）
 │  │  │  └─ MarketSource.ts        … manual/auto/estimate
 │  │  ├─ market/
-│  │  │  └─ MarketRecord.ts        … 相場1件。openapi.yaml の MarketRecord と一致
+│  │  │  ├─ MarketRecord.ts        … 相場1件。openapi.yaml の MarketRecord と一致
+│  │  │  └─ deriveMarketPrice.ts   … history → price(末尾)/change の導出（純粋関数）
 │  │  └─ catalog/
 │  │     └─ Catalog.ts             … 書誌のマスタ（型）。Collection/Market が共通参照する hub
 │  │
 │  ├─ application/                 … ユースケースと「ポート」(interface)
 │  │  ├─ ports/
 │  │  │  ├─ CollectionRepository.ts … listByUser(userId) / create(userId, id, catalogId, instance)
-│  │  │  ├─ MarketRepository.ts    … listAll(): Promise<MarketRecord[]>
+│  │  │  ├─ MarketRepository.ts    … listAll() / create / update / remove（相場の読み書き）
 │  │  │  ├─ MarketPriceRepository.ts … pricesByCatalog(ids): catalogId→現在相場（円）
-│  │  │  └─ CatalogRepository.ts   … getMany(ids)（join 用）/ listAll()（一覧 用）
+│  │  │  └─ CatalogRepository.ts   … getMany(ids)/listAll()/create/update/remove（書誌の読み書き）
 │  │  └─ usecases/
 │  │     ├─ ListCollection.ts      … repo を呼んで一覧を返す（AWS非依存）
 │  │     ├─ CreateCollection.ts    … catalogId 検証 + 採番して作成（AWS非依存）
 │  │     ├─ ListMarket.ts          … repo を呼んで相場一覧を返す（AWS非依存）
-│  │     └─ ListCatalog.ts         … repo を呼んでカタログ一覧を返す（AWS非依存）
+│  │     ├─ Create/Update/DeleteMarket.ts … 相場の作成・更新・削除（catalogId 検証）
+│  │     ├─ ListCatalog.ts         … repo を呼んでカタログ一覧を返す（AWS非依存）
+│  │     └─ Create/Update/DeleteCatalog.ts … カタログの作成・更新・削除
 │  │
 │  ├─ adapters/                    … 内と外の変換層
 │  │  ├─ http/                     … 入力アダプタ（API Gateway 側）
-│  │  │  ├─ httpResponse.ts        … json() ヘルパー
+│  │  │  ├─ httpResponse.ts        … json() / noContent() ヘルパー
 │  │  │  ├─ extractUserId.ts       … event の JWT claims から sub を取り出す
+│  │  │  ├─ extractGroups.ts       … event の JWT claims から cognito:groups を取り出す
+│  │  │  ├─ requireEditor.ts       … editor グループ未所属なら 403（編集系の業務認可）
+│  │  │  ├─ readJsonBody.ts        … event.body(base64可) を JSON として読む共通処理
 │  │  │  ├─ parseNewCollection.ts  … POST 本文の検証・既定値補完（→ CreateCollectionInput）
+│  │  │  ├─ parseCatalogInput.ts   … catalog 本文の検証・既定値補完（→ CatalogInput）
+│  │  │  ├─ parseMarketInput.ts    … market 本文の検証（history=12要素）→ MarketInput
 │  │  │  ├─ CollectionController.ts … list（GET）/ create（POST）→ usecase → HTTP応答
-│  │  │  ├─ MarketController.ts     … event → usecase → HTTP応答（userId 不要）
-│  │  │  ├─ CatalogController.ts    … event → usecase → HTTP応答（userId 不要）
+│  │  │  ├─ MarketController.ts     … list/create/update/remove → usecase → HTTP応答
+│  │  │  ├─ CatalogController.ts    … list/create/update/remove → usecase → HTTP応答
 │  │  │  └─ router.ts              … routeKey → controller のディスパッチ
 │  │  └─ persistence/dynamo/       … 出力アダプタ（DynamoDB 側）
 │  │     ├─ dynamoClient.ts        … DocumentClient 生成
 │  │     ├─ collectionRecordMapper.ts … {PK,SK,data}⇄保存形。読みは buildCollectionItem に委譲
 │  │     ├─ DynamoCollectionRepository.ts … CollectionRepository の実装（Catalog を join）
 │  │     ├─ marketRecordMapper.ts  … テーブル行 + Catalog → MarketRecord
-│  │     ├─ DynamoMarketRepository.ts … MarketRepository の実装（byNew GSI / Catalog を join）
+│  │     ├─ DynamoMarketRepository.ts … MarketRepository の実装（読み: byNew GSI/join、書き: Put/Update/Delete）
 │  │     ├─ catalogRecordMapper.ts … {PK,SK,data} ⇄ Catalog（PK=CATALOG / SK=CATALOG#<id>）
-│  │     ├─ DynamoCatalogRepository.ts … CatalogRepository の実装（BatchGetItem）
+│  │     ├─ DynamoCatalogRepository.ts … CatalogRepository の実装（読み: BatchGet/Query、書き: Put/Delete）
 │  │     └─ DynamoMarketPriceRepository.ts … catalogId→現在相場（market-record を集計）
 │  │
 │  ├─ config/
@@ -144,7 +152,7 @@ Catalog である程度「型」が決まっているので、固有情報だけ
 
 > Catalog 一覧の読み取りは `GET /catalogs`（`PK="CATALOG"` の Query で全件取得・
 > `ListCatalog` → `CatalogRepository.listAll`）で提供する。
-> Catalog / Collection を作成する write エンドポイント（`POST /catalogs` 等）は次フェーズ。
+> Catalog / MarketRecord の編集（`POST` / `PUT` / `DELETE`）は実装済み（次々節参照）。
 
 ## 書き込み系の追加例（`POST /collection`）
 
@@ -170,6 +178,52 @@ Catalog である程度「型」が決まっているので、固有情報だけ
 > `POST /collection` の入力にも保存形にも含めない。読み取り（`GET /collection`）と
 > 作成応答の両方で `MarketPriceRepository.pricesByCatalog` から相場を引き、
 > 相場あり→`market`=価格 /`marketSource`=`auto`、相場なし→`0` /`estimate` を合成する。
+
+## Market / Catalog の編集系（要 editor 権限）
+
+`market` と `catalog` に作成・更新・削除を追加した。`POST /collection` と同じ層構造
+（parse → usecase → repository）に沿い、さらに **業務認可** を一段重ねている。
+
+| メソッド / パス | usecase | 主な応答 |
+|-----------------|---------|----------|
+| `POST /catalogs` | `CreateCatalog` | 201（id は `cat-<uuid>` 採番） |
+| `PUT /catalogs/{id}` | `UpdateCatalog` | 200 / 404 |
+| `DELETE /catalogs/{id}` | `DeleteCatalog` | 204 / 404 |
+| `POST /market` | `CreateMarket` | 201（id/listedAt 採番） |
+| `PUT /market/{id}` | `UpdateMarket` | 200 / 400 / 404 |
+| `DELETE /market/{id}` | `DeleteMarket` | 204 / 404 |
+
+### 認可（二段構え）
+
+1. **認証（ログイン済みか）** … API Gateway の Cognito JWT Authorizer がルート手前で検証。
+   無効／無トークンは Lambda に届く前に **401**。
+2. **業務認可（編集権限があるか）** … 各書き込み Controller の先頭で `requireEditor(event)`
+   を呼び、JWT の `cognito:groups`（`extractGroups` で取得。HTTP API は `"[editor]"` の
+   文字列でも来るため両形式を吸収）に `editor` が無ければ **403**。グループは Cognito 側で
+   管理し（`terraform/cognito.tf` の `aws_cognito_user_group.editor`）、ユーザーを入れると
+   次回発行のトークンから `cognito:groups=editor` が載る。
+
+読み取り系（`GET /market` `GET /catalogs`）は業務認可を掛けず、ログイン済みなら誰でも閲覧可。
+
+### MarketRecord の書き込みモデル
+
+保存は正規化済み（書誌は `catalogId` 参照）。入力は `catalogId` ＋ 出品固有
+（`seller` / `condition` / `history`）だけを受け取り、次をサーバが決める:
+
+- `price` = `history` 末尾、`change` = `(末尾 - 先頭) / 先頭` …
+  `domain/market/deriveMarketPrice`（純粋関数）で導出する（入力に含めない）。
+- `id` = `mk-<uuid>`、`listedAt` = 生成時刻（新着ソート用。大きいほど新しい）。
+- `update` は `UpdateItem` で可変項目のみ置換して `listedAt` を保持し、`price`/`change` を
+  再導出（`condition` / `change` は DynamoDB 予約語なので名前プレースホルダで逃がす）。
+
+応答は読み取り（`GET /market`）と同じく Catalog を join した `MarketRecord`。
+`create` / `update` は `catalogId` の実在を検証し、不在なら **400**（`update` の対象 id
+不在は **404**）。存在制御は DynamoDB の `attribute_exists` / `attribute_not_exists` で行う
+（`ConditionalCheckFailedException` を 404/false に変換）。削除成功は本文なしの **204**。
+
+> IAM は `PutItem` / `UpdateItem` / `DeleteItem` が既に許可済みのため追加不要。
+> API Gateway 側は `terraform/apigateway.tf` の `locals.routes` に6ルートを足すだけで
+> JWT Authorizer が自動付与される（`for_each`）。CORS も `PUT`/`DELETE` は許可済み。
 
 ## ビルド / デプロイ
 

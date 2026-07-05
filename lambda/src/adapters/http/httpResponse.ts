@@ -10,3 +10,10 @@ export const json = (statusCode: number, body: unknown): HttpResponse => ({
   headers: { "content-type": "application/json; charset=utf-8" },
   body: JSON.stringify(body),
 });
+
+// 本文を持たない 204 応答（削除成功など）。ボディ無しなので content-type も付けない。
+export const noContent = (): HttpResponse => ({
+  statusCode: 204,
+  headers: {},
+  body: "",
+});
