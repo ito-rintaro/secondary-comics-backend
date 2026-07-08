@@ -1,4 +1,3 @@
-import type { Condition } from "../../../domain/collection/Condition";
 import type { MarketSale } from "../../../domain/market/MarketSale";
 import type { MarketSummary } from "../../../domain/market/MarketSummary";
 import type { SaleStats } from "../../../domain/market/summarizeSales";
@@ -15,7 +14,7 @@ export const MARKET_GSI_PK = "RECORD";
 export interface MarketSaleRow {
   marketRecordId: string;
   catalogId: string; // 参照する Catalog
-  condition: Condition; // この成約個体の状態
+  condition: string; // 鑑定記録（種類未確定のため任意の自由文字列。空文字可）
   price: number; // 成約価格（円）＝単一
   soldAt: string; // 成約日 "YYYY-MM-DD"
   seller: string; // 販売元 / ショップ名（成約固有）

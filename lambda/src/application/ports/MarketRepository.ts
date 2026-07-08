@@ -1,11 +1,10 @@
 import type { MarketSale } from "../../domain/market/MarketSale";
-import type { Condition } from "../../domain/collection/Condition";
 
 // 成約（MarketSale）の書き込みペイロード。書誌は catalogId で参照し、成約固有情報だけを持つ。
 // id はサーバ採番、listedAt（登録時刻）は byNew の新着ソート用にサーバが採番するため含めない。
 export interface MarketInput {
   catalogId: string; // 参照する Catalog（実在必須）
-  condition: Condition; // この成約個体の状態ランク
+  condition: string; // 鑑定記録（種類未確定のため任意の自由文字列。空文字可）
   price: number; // 成約価格（円・0 以上整数）
   soldAt: string; // 成約日 "YYYY-MM-DD"
   seller: string; // 販売元 / ショップ名（空文字可）

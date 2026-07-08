@@ -1,4 +1,3 @@
-import type { Condition } from "../collection/Condition";
 import type { ConditionFlags } from "../collection/ConditionFlags";
 
 // 二次流通マーケットの「成約 1 件」（全ユーザー共通＝グローバル）。
@@ -17,7 +16,9 @@ export interface MarketSale {
   imageUrl: string; // 画像の S3 オブジェクトキー（ファイル名のみ。空文字可）
   // --- 成約固有 ---
   catalogId: string; // 参照する Catalog
-  condition: Condition; // この成約個体の状態ランク
+  // 鑑定記録（鑑定機関・グレード等の自由文字列）。取り得る種類が未確定のため、
+  // 現状は型を固定せず任意の文字列を許容する（空文字可）。
+  condition: string;
   price: number; // 成約価格（円・0 以上整数）＝単一
   soldAt: string; // 成約日 "YYYY-MM-DD"（集計・チャートの時間軸）
   seller: string; // 販売元 / ショップ名（空文字可）

@@ -26,7 +26,7 @@ lambda/
 │  │  ├─ collection/
 │  │  │  ├─ CollectionItem.ts      … 所有品1件。openapi.yaml の CollectionItem と一致
 │  │  │  ├─ buildCollectionItem.ts … 所有インスタンス + Catalog + 相場 → CollectionItem（純粋関数）
-│  │  │  ├─ Condition.ts           … S/A/B/C（market と共有）
+│  │  │  ├─ Condition.ts           … S/A/B/C（Collection 専用。market の condition は鑑定記録の自由文字列）
 │  │  │  ├─ ConditionFlags.ts      … firstEd/obi/special（market と共有）
 │  │  │  └─ MarketSource.ts        … manual/auto/estimate
 │  │  ├─ market/

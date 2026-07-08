@@ -745,7 +745,11 @@ components:
           description: 参照する Catalog の id
           example: cat-001
         condition:
-          $ref: '#/components/schemas/Condition'
+          type: string
+          description: |
+            鑑定記録（鑑定機関・グレード等の自由文字列）。取り得る種類が未確定のため、
+            enum で固定せず任意の文字列を許容する（空文字可）。
+          example: PSA 9.5
         price:
           type: integer
           minimum: 0
@@ -887,14 +891,19 @@ components:
     # id / listedAt はサーバ採番のため含めない。相場（history/change）は集計側で導出。
     NewMarketInput:
       type: object
-      required: [catalogId, condition, price, soldAt]
+      required: [catalogId, price, soldAt]
       properties:
         catalogId:
           type: string
           description: 参照する Catalog の id（実在必須。無ければ 400）
           example: cat-001
         condition:
-          $ref: '#/components/schemas/Condition'
+          type: string
+          default: ''
+          description: |
+            鑑定記録（鑑定機関・グレード等の自由文字列。既定 空文字）。
+            取り得る種類が未確定のため enum で固定せず任意の文字列を許容する。
+          example: PSA 9.5
         price:
           type: integer
           minimum: 0
