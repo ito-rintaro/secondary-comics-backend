@@ -9,6 +9,8 @@ import type { MarketSale } from "../../../domain/market/MarketSale";
 import type {
   MarketInput,
   MarketRepository,
+  SaleSnapshot,
+  UpdatedSale,
 } from "../../../application/ports/MarketRepository";
 import type { CatalogRepository } from "../../../application/ports/CatalogRepository";
 import {
@@ -22,12 +24,12 @@ import { emptyCatalog } from "./catalogRecordMapper";
 const CONDITIONAL_FAILED = "ConditionalCheckFailedException";
 
 // 独立テーブル market-record の成約レコードを読み書きする MarketRepository の実装。
-// 全レコードは gsiPk="RECORD" で 1 束にまとまっているため、byNew GSI を
-// Query すれば全件を新着順で取得できる（Scan を避け、RECORD 以外の行も自然に除外）。
-// 書誌情報は Catalog マスタへ正規化済みのため、参照 catalogId を集めて
-// CatalogRepository でまとめて引き、サーバ側で join して MarketSale を組み立てる。
-// 相場の集計（現在価格・変化率・チャート系列）は読み取り側（summary）で行うため、
-// ここでは成約を 1 件 1 価格でそのまま読み書きするだけ。
+// 全レコードは gsiPk="RECORD" で 1 束にまとまっているため、byNew GSI を Query すれば
+// 全件を登録順で取得できる。個別 catalog の成約は byCatalog GSI（catalogId→soldAt）を
+// 逆順 Query して「成約日の新しい順」で取得する。
+// 書誌情報は Catalog マスタへ正規化済みのため、参照 catalogId を集めて join する。
+// 相場サマリの保守（materialize）は usecase 側が MarketSummaryStore で行うため、
+// update/remove は「消える側」のスナップショットを返して差分更新に供する。
 export class DynamoMarketRepository implements MarketRepository {
   constructor(
     private readonly ddb: DynamoDBDocumentClient,
@@ -41,29 +43,41 @@ export class DynamoMarketRepository implements MarketRepository {
         TableName: this.tableName,
         IndexName: "byNew",
         KeyConditionExpression: "gsiPk = :pk",
-        ExpressionAttributeValues: {
-          ":pk": MARKET_GSI_PK,
-        },
+        ExpressionAttributeValues: { ":pk": MARKET_GSI_PK },
       }),
     );
     const rows = (res.Items ?? []) as MarketSaleRow[];
-    const catalogMap = await this.catalog.getMany(
-      rows.map((r) => r.catalogId),
-    );
+    const catalogMap = await this.catalog.getMany(rows.map((r) => r.catalogId));
     return rows.map((row) =>
-      toMarketSale(
-        row,
-        catalogMap.get(row.catalogId) ?? emptyCatalog(row.catalogId),
-      ),
+      toMarketSale(row, catalogMap.get(row.catalogId) ?? emptyCatalog(row.catalogId)),
     );
   }
 
+  // 指定 catalog の成約を成約日 soldAt の新しい順で返す（byCatalog GSI を逆順 Query）。
+  async listByCatalog(catalogId: string): Promise<MarketSale[]> {
+    const rows: MarketSaleRow[] = [];
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.ddb.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: "byCatalog",
+          KeyConditionExpression: "catalogId = :cid",
+          ExpressionAttributeValues: { ":cid": catalogId },
+          ScanIndexForward: false, // soldAt 降順＝新しい順
+          ExclusiveStartKey,
+        }),
+      );
+      rows.push(...((res.Items ?? []) as MarketSaleRow[]));
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    const catalogMap = await this.catalog.getMany([catalogId]);
+    const cat = catalogMap.get(catalogId) ?? emptyCatalog(catalogId);
+    return rows.map((row) => toMarketSale(row, cat));
+  }
+
   // 新規成約を保存する。gsiPk は全件束ねる固定値を付ける。同一 id が既にあれば失敗させる。
-  async create(
-    id: string,
-    input: MarketInput,
-    listedAt: number,
-  ): Promise<MarketSale> {
+  async create(id: string, input: MarketInput, listedAt: number): Promise<MarketSale> {
     const row: MarketSaleRow = {
       marketRecordId: id,
       catalogId: input.catalogId,
@@ -83,8 +97,9 @@ export class DynamoMarketRepository implements MarketRepository {
     return this.join(row);
   }
 
-  // 既存成約の可変項目を更新する。listedAt / gsiPk は保持（未更新）。存在しなければ null。
-  async update(id: string, input: MarketInput): Promise<MarketSale | null> {
+  // 既存成約の可変項目を更新する。listedAt / gsiPk は保持。ReturnValues=ALL_OLD で
+  // 更新前スナップショット（サマリ差分用）を取得し、更新後の sale と共に返す。存在しなければ null。
+  async update(id: string, input: MarketInput): Promise<UpdatedSale | null> {
     try {
       const res = await this.ddb.send(
         new UpdateCommand({
@@ -95,9 +110,7 @@ export class DynamoMarketRepository implements MarketRepository {
             "price = :price, soldAt = :soldAt, seller = :seller",
           ConditionExpression: "attribute_exists(marketRecordId)",
           // condition は DynamoDB 予約語なので名前プレースホルダで逃がす。
-          ExpressionAttributeNames: {
-            "#condition": "condition",
-          },
+          ExpressionAttributeNames: { "#condition": "condition" },
           ExpressionAttributeValues: {
             ":catalogId": input.catalogId,
             ":condition": input.condition,
@@ -105,29 +118,50 @@ export class DynamoMarketRepository implements MarketRepository {
             ":soldAt": input.soldAt,
             ":seller": input.seller,
           },
-          ReturnValues: "ALL_NEW",
+          ReturnValues: "ALL_OLD",
         }),
       );
-      return this.join(res.Attributes as MarketSaleRow);
+      const old = res.Attributes as MarketSaleRow;
+      const newRow: MarketSaleRow = {
+        marketRecordId: id,
+        catalogId: input.catalogId,
+        condition: input.condition,
+        price: input.price,
+        soldAt: input.soldAt,
+        seller: input.seller,
+        listedAt: old.listedAt,
+      };
+      const sale = await this.join(newRow);
+      return {
+        sale,
+        previous: {
+          catalogId: old.catalogId,
+          price: old.price,
+          soldAt: old.soldAt,
+        },
+      };
     } catch (err) {
       if ((err as Error).name === CONDITIONAL_FAILED) return null;
       throw err;
     }
   }
 
-  // 成約レコードを削除する。元々存在しなければ false。
-  async remove(id: string): Promise<boolean> {
+  // 成約レコードを削除する。ReturnValues=ALL_OLD で消えた成約のスナップショットを返す。
+  // 元々存在しなければ null。
+  async remove(id: string): Promise<SaleSnapshot | null> {
     try {
-      await this.ddb.send(
+      const res = await this.ddb.send(
         new DeleteCommand({
           TableName: this.tableName,
           Key: { marketRecordId: id },
           ConditionExpression: "attribute_exists(marketRecordId)",
+          ReturnValues: "ALL_OLD",
         }),
       );
-      return true;
+      const old = res.Attributes as MarketSaleRow;
+      return { catalogId: old.catalogId, price: old.price, soldAt: old.soldAt };
     } catch (err) {
-      if ((err as Error).name === CONDITIONAL_FAILED) return false;
+      if ((err as Error).name === CONDITIONAL_FAILED) return null;
       throw err;
     }
   }
@@ -135,9 +169,6 @@ export class DynamoMarketRepository implements MarketRepository {
   // 1 行 + 参照先 Catalog → MarketSale（listAll と同じ join を単件で行う）。
   private async join(row: MarketSaleRow): Promise<MarketSale> {
     const catalogMap = await this.catalog.getMany([row.catalogId]);
-    return toMarketSale(
-      row,
-      catalogMap.get(row.catalogId) ?? emptyCatalog(row.catalogId),
-    );
+    return toMarketSale(row, catalogMap.get(row.catalogId) ?? emptyCatalog(row.catalogId));
   }
 }

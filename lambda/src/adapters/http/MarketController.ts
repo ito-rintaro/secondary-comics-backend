@@ -23,10 +23,12 @@ export class MarketController {
   ) {}
 
   // GET /market … 成約ログ（1 件 1 価格）の一覧。
+  // ?catalogId=<id> を付けるとその catalog の成約を成約日の新しい順で返す。
   async list(
-    _event: APIGatewayProxyEventV2WithJWTAuthorizer,
+    event: APIGatewayProxyEventV2WithJWTAuthorizer,
   ): Promise<HttpResponse> {
-    const records = await this.listMarket.execute();
+    const catalogId = event.queryStringParameters?.catalogId || undefined;
+    const records = await this.listMarket.execute(catalogId);
     return json(200, records);
   }
 

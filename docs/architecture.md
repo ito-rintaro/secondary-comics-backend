@@ -39,8 +39,9 @@ lambda/
 │  ├─ application/                 … ユースケースと「ポート」(interface)
 │  │  ├─ ports/
 │  │  │  ├─ CollectionRepository.ts … listByUser(userId) / create(userId, id, catalogId, instance)
-│  │  │  ├─ MarketRepository.ts    … listAll() / create / update / remove（成約ログの読み書き）
-│  │  │  ├─ MarketSummaryRepository.ts … listSummaries(): catalog単位の相場サマリ
+│  │  │  ├─ MarketRepository.ts    … listAll() / listByCatalog / create / update / remove（成約ログ）
+│  │  │  ├─ MarketSummaryStore.ts  … 相場サマリの保守（createEmpty/remove/onSaleAdded/onSaleRemoved）
+│  │  │  ├─ MarketSummaryRepository.ts … listSummaries(): catalog単位の相場サマリ（読み取り）
 │  │  │  ├─ MarketPriceRepository.ts … pricesByCatalog(ids): catalogId→現在相場（円）
 │  │  │  └─ CatalogRepository.ts   … getMany(ids)/listAll()/create/update/remove（書誌の読み書き）
 │  │  └─ usecases/
@@ -71,12 +72,14 @@ lambda/
 │  │     ├─ collectionRecordMapper.ts … {PK,SK,data}⇄保存形。読みは buildCollectionItem に委譲
 │  │     ├─ DynamoCollectionRepository.ts … CollectionRepository の実装（Catalog を join）
 │  │     ├─ marketSaleMapper.ts    … テーブル行 + Catalog → MarketSale / MarketSummary
-│  │     ├─ queryMarketSales.ts    … 成約行の全件取得・catalogId グルーピング・月変換の共有ヘルパー
-│  │     ├─ DynamoMarketRepository.ts … MarketRepository の実装（読み: byNew GSI/join、書き: Put/Update/Delete）
-│  │     ├─ DynamoMarketSummaryRepository.ts … 成約ログを catalog 単位に集計（summarizeSales + Catalog join）
+│  │     ├─ marketSummaryMapper.ts … app テーブルの相場サマリ item ⇄ 月次バケット（PK=MARKET_SUMMARY）
+│  │     ├─ yearMonth.ts           … epoch → "YYYY-MM"（現在月）変換ヘルパー
+│  │     ├─ DynamoMarketRepository.ts … MarketRepository の実装（読み: byNew/byCatalog GSI、書き: Put/Update/Delete）
+│  │     ├─ DynamoMarketSummaryStore.ts … 相場サマリの差分更新（成約の増減で月次バケットを read-modify-write）
+│  │     ├─ DynamoMarketSummaryRepository.ts … materialize 済みサマリを読み Catalog を join（成約スキャンなし）
 │  │     ├─ catalogRecordMapper.ts … {PK,SK,data} ⇄ Catalog（PK=CATALOG / SK=CATALOG#<id>）
 │  │     ├─ DynamoCatalogRepository.ts … CatalogRepository の実装（読み: BatchGet/Query、書き: Put/Delete）
-│  │     └─ DynamoMarketPriceRepository.ts … catalogId→現在相場（成約ログを summarizeSales で集計）
+│  │     └─ DynamoMarketPriceRepository.ts … catalogId→現在相場（相場サマリを BatchGet して導出）
 │  │
 │  ├─ config/
 │  │  └─ env.ts                    … 環境変数(APP_TABLE_NAME / MARKET_TABLE_NAME)の読み取りを一元化
@@ -148,6 +151,8 @@ Catalog である程度「型」が決まっているので、固有情報だけ
 保存形（`app` 単一テーブル・アイテムコレクション型）: `PK="CATALOG"`（固定）,
 `SK="CATALOG#<id>"`, `data={書誌}`。全 Catalog が単一パーティション `PK="CATALOG"` に
 束ねられるので、PK を Query すれば全件取得・SK 指定で個別取得できる。
+相場サマリも同じ app テーブルに `PK="MARKET_SUMMARY"` / `SK=<catalogId>` で同居する
+（別パーティションなので Catalog 一覧の Query とは混ざらない）。
 
 **API 応答は正規化前と同一**（破壊的変更なし）。`DynamoCollectionRepository` /
 `DynamoMarketRepository` が一覧取得時に参照 `catalogId` を集め、
@@ -214,9 +219,9 @@ Catalog である程度「型」が決まっているので、固有情報だけ
 ### MarketSale（成約ログ）と MarketSummary（相場サマリ）の2層
 
 マーケットは **成約1件1価格の取引ログ（`MarketSale`）** を append-only に貯め、
-**相場（現在価格・変化率・チャート系列）は catalog 単位で集計する読み取りモデル
-（`MarketSummary`）** として都度導出する（保存しない）。取引が疎な初版でも成約時点だけを
-正直に記録できる。設計の詳細は [market-sales-redesign.md](market-sales-redesign.md)。
+**相場（現在価格・変化率・チャート系列）は catalog 単位の読み取りモデル（`MarketSummary`）**
+として提供する。取引が疎な初版でも成約時点だけを正直に記録できる。
+設計の詳細は [market-sales-redesign.md](market-sales-redesign.md)。
 
 保存は正規化済み（書誌は `catalogId` 参照）。書き込み入力は `catalogId` ＋ 成約固有
 （`condition` / `price` / `soldAt` / `seller`）だけを受け取り、次をサーバが決める:
@@ -224,12 +229,25 @@ Catalog である程度「型」が決まっているので、固有情報だけ
 - `id` = `mk-<uuid>`、`listedAt` = 登録時刻（byNew の新着ソート用。成約日 `soldAt` とは別軸）。
 - `update` は `UpdateItem` で可変項目のみ置換して `listedAt` を保持
   （`condition` は DynamoDB 予約語なので名前プレースホルダで逃がす）。
+- `GET /market?catalogId=<id>` は **byCatalog GSI（catalogId→soldAt）を逆順 Query** し、
+  その本の成約を成約日の新しい順で返す。
 
-`GET /market/summary` は成約ログを `catalogId` でグルーピングし、`domain/market/summarizeSales`
-（純粋関数）で `price`（= 月次擬似 `history` の末尾）/ `change` / `history[12]` / `sampleCount`
-/ `lastSoldAt` を導出する。成約が無い月は前方フィル、最初の成約より前はバックフィルして
-月次折れ線を成立させる。`DynamoMarketPriceRepository`（Collection の相場 join）も同じ集計を
-共有し `price` だけを取り出す。
+**相場サマリは materialize（事前計算）する**。都度スキャンだと成約が増えるほど読み取りが
+重くなるため、**書き込みを重く・読み取りを軽く**する:
+
+- サマリは app テーブルに `PK="MARKET_SUMMARY"` / `SK=<catalogId>` で同居し、中身は
+  **時間非依存の月次バケット**（`months{ "YYYY-MM": {sum,count} }` + `lastSoldAt` + 楽観ロック `version`）。
+- 保守は `MarketSummaryStore`（`DynamoMarketSummaryStore`）が担う。**カタログ作成で空サマリ作成・
+  削除でサマリ削除**、**成約の追加/更新/削除で該当月バケットを差分更新**する。対象サマリ 1 件を
+  強整合 GetItem → `version` 条件付き PutItem で read-modify-write するため、GSI 反映遅延に
+  左右されず **成約追加直後に必ず反映**される（競合は指数バックオフでリトライ）。
+- 読み取り（`GET /market/summary` と Collection の相場 join = `DynamoMarketPriceRepository`）は
+  保存済みバケットから **現在月を末尾とする `history[12]` / `price` / `change` / `sampleCount` を
+  `buildStatsFromMonthly` で組み立てる**（`domain/market/summarizeSales`）。ローリング窓を読み取り時に
+  投影するので、成約が無くても**月替わりで陳腐化しない**。成約が無い月は前方フィル、最初の成約より
+  前はバックフィル。**成約ログの全件スキャンは行わない**。
+- 既存データからの再構築・修復は `scripts/seed/rebuild-summaries.mjs`（成約を読み直して全 catalog の
+  サマリを作り直す）。`seed.mjs` も成約からサマリ item を同時生成する。
 
 読み取り応答は Catalog を join した形（`GET /market`=`MarketSale`、`GET /market/summary`=`MarketSummary`）。
 `create` / `update` は `catalogId` の実在を検証し、不在なら **400**（`update` の対象 id

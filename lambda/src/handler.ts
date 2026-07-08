@@ -11,6 +11,7 @@ import { DynamoMarketRepository } from "./adapters/persistence/dynamo/DynamoMark
 import { DynamoCatalogRepository } from "./adapters/persistence/dynamo/DynamoCatalogRepository";
 import { DynamoMarketPriceRepository } from "./adapters/persistence/dynamo/DynamoMarketPriceRepository";
 import { DynamoMarketSummaryRepository } from "./adapters/persistence/dynamo/DynamoMarketSummaryRepository";
+import { DynamoMarketSummaryStore } from "./adapters/persistence/dynamo/DynamoMarketSummaryStore";
 import { randomUUID } from "node:crypto";
 import { ListCollection } from "./application/usecases/ListCollection";
 import { CreateCollection } from "./application/usecases/CreateCollection";
@@ -38,10 +39,13 @@ const env = loadEnv();
 const ddb = createDocumentClient();
 // Catalog マスタは app テーブルに同居。Collection / Market の書誌 join に使う。
 const catalogRepo = new DynamoCatalogRepository(ddb, env.appTableName);
-// 現在相場は market-record の成約ログから集計して導出する（Collection は market を保存しない）。
+// 相場サマリ（月次バケット）も app テーブルに同居（PK="MARKET_SUMMARY"）。
+// 成約の増減で差分更新し（書き込み側）、読み取りはここから materialize 済みを引く。
+const marketSummaryStore = new DynamoMarketSummaryStore(ddb, env.appTableName);
+// 現在相場は materialize 済みの相場サマリから引く（成約ログのスキャンはしない）。
 const marketPriceRepo = new DynamoMarketPriceRepository(
   ddb,
-  env.marketTableName,
+  env.appTableName,
   () => Date.now(),
 );
 const collectionRepo = new DynamoCollectionRepository(
@@ -70,24 +74,25 @@ const marketRepo = new DynamoMarketRepository(
   catalogRepo,
 );
 const listMarket = new ListMarket(marketRepo);
-// 相場サマリ: 成約ログを catalog 単位に集計する（相場一覧・チャートの供給源）。
+// 相場サマリ: materialize 済み（app テーブル）を読み、Catalog を join して返す。
 const marketSummaryRepo = new DynamoMarketSummaryRepository(
   ddb,
-  env.marketTableName,
+  env.appTableName,
   catalogRepo,
   () => Date.now(),
 );
 const listMarketSummary = new ListMarketSummary(marketSummaryRepo);
 // 編集系: catalogId の実在検証(catalogRepo)を挟み、id/listedAt はここで採番する。
-// 成約は 1 件 1 価格で保存し、相場の集計は読み取り側（summary）で行う。
+// 成約の増減で相場サマリ（marketSummaryStore）を差分更新する。
 const createMarket = new CreateMarket(
   marketRepo,
+  marketSummaryStore,
   catalogRepo,
   () => `mk-${randomUUID()}`,
   () => Date.now(),
 );
-const updateMarket = new UpdateMarket(marketRepo, catalogRepo);
-const deleteMarket = new DeleteMarket(marketRepo);
+const updateMarket = new UpdateMarket(marketRepo, marketSummaryStore, catalogRepo);
+const deleteMarket = new DeleteMarket(marketRepo, marketSummaryStore);
 const marketController = new MarketController(
   listMarket,
   listMarketSummary,
@@ -97,10 +102,14 @@ const marketController = new MarketController(
 );
 // Catalog 一覧は catalogRepo を再利用（PK="CATALOG" の Query で全件取得）。
 const listCatalog = new ListCatalog(catalogRepo);
-// 編集系: id はここで採番する（"cat-<uuid>"）。
-const createCatalog = new CreateCatalog(catalogRepo, () => `cat-${randomUUID()}`);
+// 編集系: id はここで採番する（"cat-<uuid>"）。作成/削除で相場サマリの空作成/削除も行う。
+const createCatalog = new CreateCatalog(
+  catalogRepo,
+  marketSummaryStore,
+  () => `cat-${randomUUID()}`,
+);
 const updateCatalog = new UpdateCatalog(catalogRepo);
-const deleteCatalog = new DeleteCatalog(catalogRepo);
+const deleteCatalog = new DeleteCatalog(catalogRepo, marketSummaryStore);
 const catalogController = new CatalogController(
   listCatalog,
   createCatalog,

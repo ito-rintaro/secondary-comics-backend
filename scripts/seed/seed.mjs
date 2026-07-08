@@ -16,6 +16,7 @@ import {
   BatchWriteCommand,
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { foldSalesToMonthly, summaryItem } from "./summaryBuckets.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tfDir = path.resolve(here, "../../terraform");
@@ -189,9 +190,22 @@ async function clearMarketRecords(table) {
   console.log(`  ${table}: cleared ${keys.length} old rows`);
 }
 
+// 相場サマリ（materialize）を成約から組み立てて app テーブルに同居させる。
+// 本番は成約の増減で差分更新されるが、seed はテーブルへ直接書くのでここで一括生成する。
+const salesByCatalog = new Map();
+for (const m of marketItems) {
+  const arr = salesByCatalog.get(m.catalogId) ?? [];
+  arr.push({ price: m.price, soldAt: m.soldAt });
+  salesByCatalog.set(m.catalogId, arr);
+}
+const summaryItems = catalogItems.map((c) => {
+  const catalogId = c.SK.slice("CATALOG#".length);
+  return summaryItem(catalogId, foldSalesToMonthly(salesByCatalog.get(catalogId) ?? []));
+});
+
 console.log("Seeding...");
 await clearMarketRecords(T.market);
 await batchPut(T.market, marketItems);
-// Catalog / Collection（USER# パーティション配下）は単一 app テーブルに同居。
-await batchPut(T.app, [...catalogItems, ...collectionItems]);
+// Catalog / Collection（USER# 配下）/ 相場サマリ は単一 app テーブルに同居。
+await batchPut(T.app, [...catalogItems, ...collectionItems, ...summaryItems]);
 console.log("Done.");

@@ -96,13 +96,21 @@ paths:
       summary: マーケット成約ログの一覧を取得
       description: |
         二次流通マーケットの成約レコード（1 件 1 価格）を配列で返す append-only な取引ログ。
-        コレクションと異なりユーザー個別ではなく全ユーザー共通（グローバル）の
-        データで、sub による絞り込みは行わない。相場（現在価格・変化率・チャート系列）は
-        集計した GET /market/summary 側で取得する。並び順（新着等）はフロント側で行うため、
-        サーバーは生のレコード配列のみを返す（クエリパラメータなし）。
+        コレクションと異なりユーザー個別ではなく全ユーザー共通（グローバル）のデータで、
+        sub による絞り込みは行わない。相場（現在価格・変化率・チャート系列）は集計した
+        GET /market/summary 側で取得する。
+        `catalogId` を指定するとその catalog の成約を**成約日 soldAt の新しい順**で返す
+        （個別の相場推移の詳細向け）。省略時は全成約を登録順で返す。
       tags: [market]
       security:
         - cognito: []
+      parameters:
+        - name: catalogId
+          in: query
+          required: false
+          description: 指定するとその Catalog の成約のみを soldAt の新しい順で返す。
+          schema:
+            type: string
       responses:
         '200':
           description: 成約レコード（MarketSale）の配列（0 件なら空配列）
