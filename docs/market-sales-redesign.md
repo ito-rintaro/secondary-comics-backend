@@ -263,3 +263,51 @@ summarizeSales(sales: MarketSale[], nowYm: string /* "YYYY-MM" */): {
 3. バックエンド: `domain`（`summarizeSales` 等）→ `adapters` → `router`/`apigateway.tf` の順で実装。
 4. seed / 既存データ移行スクリプトを用意して dev で投入・集計を確認。
 5. FE: 型と供給源（§7.1）を差し替え、入力フォーム（§7.2）を改修。dev で疎通確認。
+
+## 9. 追記: 相場サマリの materialize 化（第2段）
+
+初期実装は「読み取りのたびに成約ログを全件スキャンして集計」していた（§3 で materialize は
+見送り）。成約が増えると読み取りが重くなるため、**書き込みを重く・読み取りを軽く**する方針で
+サマリを materialize（事前計算）へ移行した。併せて **catalog 別の成約履歴を新しい順で引く
+クエリ**を追加した。
+
+### 9.1 決定事項（第2段）
+
+| 論点 | 決定 |
+|---|---|
+| サマリ保存形 | **月次バケット**（`months{ym:{sum,count}}` + `lastSoldAt`）を保存し、`history[12]`/`price`/`change`/`sampleCount` は**読み取り時に現在月基準で組み立て**る（ローリング窓の月替わり陳腐化を回避） |
+| 置き場所 | `app` テーブルに同居。`PK="MARKET_SUMMARY"` / `SK=<catalogId>` |
+| ライフサイクル | **カタログ作成で空サマリ作成・削除でサマリ削除** |
+| 保守 | **成約の追加/更新/削除**で該当月バケットを差分更新（`MarketSummaryStore`） |
+| 整合性 | 対象サマリ 1 件を**強整合 GetItem → `version` 条件付き PutItem** で read-modify-write。GSI 反映遅延に左右されず**追加直後に必ず反映**。競合はリトライ |
+| 取引履歴クエリ | **catalog 別・成約日 `soldAt` の新しい順**。`byCatalog` GSI（`catalogId`→`soldAt`）を逆順 Query。`GET /market?catalogId=<id>` |
+
+### 9.2 実装の要点
+
+- `domain/market/summarizeSales.ts` を分割:
+  - `foldSalesToMonthly(sales)` … 成約列 → 月次バケット（時間非依存・保存する形）
+  - `applyBucketDelta(buckets, obs, ±1)` … 成約1件の差分反映（書き込み時）
+  - `buildStatsFromMonthly(buckets, nowYm)` … 月次バケット + 現在月 → `SaleStats`（読み取り時）
+- `sampleCount` はバケットの件数総和から読み取り時に導出。`lastSoldAt` は日精度が
+  バケットから復元できないため別持ちで、**追加時は max 更新／削除時はベストエフォート**
+  （最新成約を消した場合のみ僅かにズレ得る。次の追加か再構築で自己修復）。
+- サマリ item は書誌を持たず**統計のみ**。読み取り時に Catalog を join するので、
+  **カタログ更新時にサマリを触らずに済む**。
+- 読み取り（`GET /market/summary` / Collection 相場 join）は成約ログをスキャンせず、
+  `PK="MARKET_SUMMARY"` の Query（または summary の BatchGet）＋ Catalog join だけ。
+- 既存データの再構築・修復: `scripts/seed/rebuild-summaries.mjs`（成約を読み直して全 catalog の
+  サマリを作り直す。偽データは入れない）。`seed.mjs` も成約からサマリを同時生成。
+
+### 9.3 インフラ / 移行（第2段）
+
+- `terraform/tables.tf`: `market-record` に `byCatalog` GSI（`catalogId`→`soldAt`）と
+  `catalogId`/`soldAt` 属性を追加。IAM は既存の `GetItem`/`PutItem`/`Query` で足りる。
+- 手順: `deploy.ps1`（build + apply）→ GSI 追加反映後に `node scripts/seed/rebuild-summaries.mjs`
+  でサマリをバックフィル。
+
+### 9.4 FE への影響（第2段）
+
+- **APIの形は不変**（`GET /market/summary` = `MarketSummary[]`、`GET /market` = `MarketSale[]`）。
+  materialize は内部最適化なので、§7 の FE 実装はそのままで良い。
+- 追加機能として `GET /market?catalogId=<id>`（その本の成約を新しい順）が使えるようになった
+  （個別本の相場推移・取引履歴ビュー向け。任意採用）。

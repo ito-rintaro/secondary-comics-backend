@@ -1,17 +1,22 @@
-import { type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { MarketPriceRepository } from "../../../application/ports/MarketPriceRepository";
-import { summarizeSales } from "../../../domain/market/summarizeSales";
 import {
-  queryAllSaleRows,
-  groupSalesByCatalog,
-  epochToYearMonth,
-} from "./queryMarketSales";
+  BatchGetCommand,
+  type DynamoDBDocumentClient,
+} from "@aws-sdk/lib-dynamodb";
+import type { MarketPriceRepository } from "../../../application/ports/MarketPriceRepository";
+import { buildStatsFromMonthly } from "../../../domain/market/summarizeSales";
+import {
+  summaryKey,
+  toBuckets,
+  type MarketSummaryRecord,
+} from "./marketSummaryMapper";
+import { epochToYearMonth } from "./yearMonth";
 
-// market-record テーブルから Catalog 単位の現在相場を引く MarketPriceRepository の実装。
+// materialize 済みの相場サマリ（app テーブル）から Catalog 単位の現在相場を引く実装。
 // Collection は market を保存せず、読み取り/作成時にここから相場を取得して合成する。
-// 全成約を取得 → catalogId でグルーピング → summarizeSales で集計し、その現在価格
-// （history 末尾）を採用する。相場サマリ（DynamoMarketSummaryRepository）と同じ集計骨格を
-// 共有し、price 部分だけを取り出す（重複ロジックを排除）。
+// 指定 catalogId のサマリ item を BatchGetItem でまとめて引き、月次バケットから現在価格
+// （history 末尾）を導出する。成約ログの全件スキャンは行わない。
+const BATCH_LIMIT = 100;
+
 export class DynamoMarketPriceRepository implements MarketPriceRepository {
   constructor(
     private readonly ddb: DynamoDBDocumentClient,
@@ -20,16 +25,32 @@ export class DynamoMarketPriceRepository implements MarketPriceRepository {
   ) {}
 
   async pricesByCatalog(catalogIds: string[]): Promise<Map<string, number>> {
-    const wanted = new Set(catalogIds.filter((id) => id));
+    const uniqueIds = [...new Set(catalogIds)].filter((id) => id);
     const result = new Map<string, number>();
-    if (wanted.size === 0) return result;
+    if (uniqueIds.length === 0) return result;
 
-    const rows = await queryAllSaleRows(this.ddb, this.tableName);
-    const grouped = groupSalesByCatalog(rows);
     const nowYm = epochToYearMonth(this.now());
-    for (const [catalogId, sales] of grouped) {
-      if (!wanted.has(catalogId)) continue;
-      result.set(catalogId, summarizeSales(sales, nowYm).price);
+    for (let i = 0; i < uniqueIds.length; i += BATCH_LIMIT) {
+      const chunk = uniqueIds.slice(i, i + BATCH_LIMIT);
+      let keys = chunk.map((id) => summaryKey(id));
+      for (let attempt = 0; attempt < 5 && keys.length; attempt++) {
+        const res = await this.ddb.send(
+          new BatchGetCommand({
+            RequestItems: { [this.tableName]: { Keys: keys } },
+          }),
+        );
+        for (const item of res.Responses?.[this.tableName] ?? []) {
+          const rec = item as MarketSummaryRecord;
+          const stats = buildStatsFromMonthly(toBuckets(rec), nowYm);
+          // 成約 0 件（相場なし）の catalog は Map に入れない（呼び出し側で estimate 扱い）。
+          if (stats.sampleCount > 0) result.set(rec.catalogId, stats.price);
+        }
+        const unprocessed = res.UnprocessedKeys?.[this.tableName]?.Keys ?? [];
+        keys = unprocessed as typeof keys;
+        if (keys.length) {
+          await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
+        }
+      }
     }
     return result;
   }

@@ -2,12 +2,14 @@ import type { MarketSale } from "../../domain/market/MarketSale";
 import type { MarketRepository } from "../ports/MarketRepository";
 
 // マーケット成約ログの一覧を取得するユースケース。
-// コレクションと異なりユーザー個別ではなく全ユーザー共通のため userId を取らない。
-// AWS も HTTP も知らず、リポジトリのポートにのみ依存する（テスト容易）。
+// catalogId を渡すとその catalog の成約を成約日の新しい順で返し、
+// 省略すると全成約を登録順で返す。グローバルデータのため userId は取らない。
 export class ListMarket {
   constructor(private readonly repo: MarketRepository) {}
 
-  execute(): Promise<MarketSale[]> {
-    return this.repo.listAll();
+  execute(catalogId?: string): Promise<MarketSale[]> {
+    return catalogId
+      ? this.repo.listByCatalog(catalogId)
+      : this.repo.listAll();
   }
 }

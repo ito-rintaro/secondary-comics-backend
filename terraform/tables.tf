@@ -23,6 +23,14 @@ resource "aws_dynamodb_table" "market_record" {
     name = "price"
     type = "N"
   }
+  attribute {
+    name = "catalogId"
+    type = "S"
+  }
+  attribute {
+    name = "soldAt"
+    type = "S"
+  }
 
   # 新着順（gsiPk="RECORD" を listedAt で並べる）
   global_secondary_index {
@@ -37,6 +45,15 @@ resource "aws_dynamodb_table" "market_record" {
     name            = "byPrice"
     hash_key        = "gsiPk"
     range_key       = "price"
+    projection_type = "ALL"
+  }
+
+  # catalog 別・成約日順（catalogId を soldAt で並べる）。
+  # 逆順 Query で「その本の成約を新しい順」に取得する。
+  global_secondary_index {
+    name            = "byCatalog"
+    hash_key        = "catalogId"
+    range_key       = "soldAt"
     projection_type = "ALL"
   }
 }
