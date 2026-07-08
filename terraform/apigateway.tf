@@ -42,6 +42,8 @@ locals {
     "GET /collection",
     "POST /collection",
     "GET /market",
+    # catalog 単位の相場サマリ（成約ログを集計した読み取りモデル）
+    "GET /market/summary",
     # market の編集系（要 editor グループ。認可は Lambda 側で強制）
     "POST /market",
     "PUT /market/{id}",

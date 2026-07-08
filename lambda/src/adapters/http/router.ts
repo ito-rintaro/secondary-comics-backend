@@ -27,6 +27,8 @@ export class Router {
         return this.collection.create(event);
       case "GET /market":
         return this.market.list(event);
+      case "GET /market/summary":
+        return this.market.summary(event);
       case "POST /market":
         return this.market.create(event);
       case "PUT /market/{id}":

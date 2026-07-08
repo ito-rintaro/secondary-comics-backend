@@ -30,22 +30,25 @@ lambda/
 │  │  │  ├─ ConditionFlags.ts      … firstEd/obi/special（market と共有）
 │  │  │  └─ MarketSource.ts        … manual/auto/estimate
 │  │  ├─ market/
-│  │  │  ├─ MarketRecord.ts        … 相場1件。openapi.yaml の MarketRecord と一致
-│  │  │  └─ deriveMarketPrice.ts   … history → price(末尾)/change の導出（純粋関数）
+│  │  │  ├─ MarketSale.ts          … 成約1件（1件1価格）。openapi.yaml の MarketSale と一致
+│  │  │  ├─ MarketSummary.ts       … catalog単位の相場サマリ。openapi.yaml の MarketSummary と一致
+│  │  │  └─ summarizeSales.ts      … 成約列 → 現在価格/変化率/月次擬似history の集計（純粋関数）
 │  │  └─ catalog/
 │  │     └─ Catalog.ts             … 書誌のマスタ（型）。Collection/Market が共通参照する hub
 │  │
 │  ├─ application/                 … ユースケースと「ポート」(interface)
 │  │  ├─ ports/
 │  │  │  ├─ CollectionRepository.ts … listByUser(userId) / create(userId, id, catalogId, instance)
-│  │  │  ├─ MarketRepository.ts    … listAll() / create / update / remove（相場の読み書き）
+│  │  │  ├─ MarketRepository.ts    … listAll() / create / update / remove（成約ログの読み書き）
+│  │  │  ├─ MarketSummaryRepository.ts … listSummaries(): catalog単位の相場サマリ
 │  │  │  ├─ MarketPriceRepository.ts … pricesByCatalog(ids): catalogId→現在相場（円）
 │  │  │  └─ CatalogRepository.ts   … getMany(ids)/listAll()/create/update/remove（書誌の読み書き）
 │  │  └─ usecases/
 │  │     ├─ ListCollection.ts      … repo を呼んで一覧を返す（AWS非依存）
 │  │     ├─ CreateCollection.ts    … catalogId 検証 + 採番して作成（AWS非依存）
-│  │     ├─ ListMarket.ts          … repo を呼んで相場一覧を返す（AWS非依存）
-│  │     ├─ Create/Update/DeleteMarket.ts … 相場の作成・更新・削除（catalogId 検証）
+│  │     ├─ ListMarket.ts          … repo を呼んで成約ログ一覧を返す（AWS非依存）
+│  │     ├─ ListMarketSummary.ts   … repo を呼んで相場サマリ一覧を返す（AWS非依存）
+│  │     ├─ Create/Update/DeleteMarket.ts … 成約の作成・更新・削除（catalogId 検証）
 │  │     ├─ ListCatalog.ts         … repo を呼んでカタログ一覧を返す（AWS非依存）
 │  │     └─ Create/Update/DeleteCatalog.ts … カタログの作成・更新・削除
 │  │
@@ -58,20 +61,22 @@ lambda/
 │  │  │  ├─ readJsonBody.ts        … event.body(base64可) を JSON として読む共通処理
 │  │  │  ├─ parseNewCollection.ts  … POST 本文の検証・既定値補完（→ CreateCollectionInput）
 │  │  │  ├─ parseCatalogInput.ts   … catalog 本文の検証・既定値補完（→ CatalogInput）
-│  │  │  ├─ parseMarketInput.ts    … market 本文の検証（history=12要素）→ MarketInput
+│  │  │  ├─ parseMarketInput.ts    … market 本文の検証（price/soldAt）→ MarketInput
 │  │  │  ├─ CollectionController.ts … list（GET）/ create（POST）→ usecase → HTTP応答
-│  │  │  ├─ MarketController.ts     … list/create/update/remove → usecase → HTTP応答
+│  │  │  ├─ MarketController.ts     … list/summary/create/update/remove → usecase → HTTP応答
 │  │  │  ├─ CatalogController.ts    … list/create/update/remove → usecase → HTTP応答
 │  │  │  └─ router.ts              … routeKey → controller のディスパッチ
 │  │  └─ persistence/dynamo/       … 出力アダプタ（DynamoDB 側）
 │  │     ├─ dynamoClient.ts        … DocumentClient 生成
 │  │     ├─ collectionRecordMapper.ts … {PK,SK,data}⇄保存形。読みは buildCollectionItem に委譲
 │  │     ├─ DynamoCollectionRepository.ts … CollectionRepository の実装（Catalog を join）
-│  │     ├─ marketRecordMapper.ts  … テーブル行 + Catalog → MarketRecord
+│  │     ├─ marketSaleMapper.ts    … テーブル行 + Catalog → MarketSale / MarketSummary
+│  │     ├─ queryMarketSales.ts    … 成約行の全件取得・catalogId グルーピング・月変換の共有ヘルパー
 │  │     ├─ DynamoMarketRepository.ts … MarketRepository の実装（読み: byNew GSI/join、書き: Put/Update/Delete）
+│  │     ├─ DynamoMarketSummaryRepository.ts … 成約ログを catalog 単位に集計（summarizeSales + Catalog join）
 │  │     ├─ catalogRecordMapper.ts … {PK,SK,data} ⇄ Catalog（PK=CATALOG / SK=CATALOG#<id>）
 │  │     ├─ DynamoCatalogRepository.ts … CatalogRepository の実装（読み: BatchGet/Query、書き: Put/Delete）
-│  │     └─ DynamoMarketPriceRepository.ts … catalogId→現在相場（market-record を集計）
+│  │     └─ DynamoMarketPriceRepository.ts … catalogId→現在相場（成約ログを summarizeSales で集計）
 │  │
 │  ├─ config/
 │  │  └─ env.ts                    … 環境変数(APP_TABLE_NAME / MARKET_TABLE_NAME)の読み取りを一元化
@@ -120,7 +125,7 @@ DynamoDB 依存は `DynamoCollectionRepository` と `collectionRecordMapper` の
    認証は API Gateway の Cognito Authorizer がルート手前で済ませている。
 3. `ListMarket.execute()` を実行（引数なし）。
 4. usecase は `MarketRepository.listAll` を呼ぶ。実装が `byNew` GSI を
-   `gsiPk="RECORD"` で Query し、`marketRecordMapper` が各行 → `MarketRecord[]` に変換。
+   `gsiPk="RECORD"` で Query し、`marketSaleMapper` が各行 → `MarketSale[]` に変換。
 5. Controller が結果を `httpResponse.json(200, records)` で返す。
 
 並び順（新着/値上がり等）はフロント側で行うため、サーバーは生の配列を返す。
@@ -128,17 +133,17 @@ DynamoDB 依存は `DynamoCollectionRepository` と `collectionRecordMapper` の
 
 ## Catalog マスタ（書誌の正規化 hub）
 
-`CollectionEntry` と `MarketRecord` は、以前は書誌情報
+`CollectionEntry` と `MarketSale` は、以前は書誌情報
 （`title` / `author` / `publisher` / `volume` / `year` / `flags` / `imageUrl`）を
 各レコードに重複して持っていた。これを **Catalog** マスタへ正規化し、各レコードは
-`catalogId` で参照するだけにした。新規 CollectionEntry / MarketRecord を作る際は、
+`catalogId` で参照するだけにした。新規 CollectionEntry / MarketSale を作る際は、
 Catalog である程度「型」が決まっているので、固有情報だけ足せばよい。
 
 | 種別 | 役割 | 主な固有属性 |
 |------|------|--------------|
 | `Catalog` | 書誌のマスタ（型・hub） | title / author / publisher / volume / year / flags / imageUrl |
 | `CollectionEntry` | 所有インスタンス | catalogId + condition / qty / cost / 購入情報 / memo |
-| `MarketRecord` | 出品 | catalogId + seller / price / history / change / listedAt |
+| `MarketSale` | 成約（取引ログ） | catalogId + condition / price / soldAt / seller / listedAt |
 
 保存形（`app` 単一テーブル・アイテムコレクション型）: `PK="CATALOG"`（固定）,
 `SK="CATALOG#<id>"`, `data={書誌}`。全 Catalog が単一パーティション `PK="CATALOG"` に
@@ -147,12 +152,12 @@ Catalog である程度「型」が決まっているので、固有情報だけ
 **API 応答は正規化前と同一**（破壊的変更なし）。`DynamoCollectionRepository` /
 `DynamoMarketRepository` が一覧取得時に参照 `catalogId` を集め、
 `CatalogRepository.getMany`（`BatchGetItem`）で一括取得して**サーバ側で join** し、
-従来どおり書誌入りの `CollectionItem` / `MarketRecord` を組み立てて返す。
+従来どおり書誌入りの `CollectionItem` / `MarketSale` を組み立てて返す。
 参照先 Catalog が無い行は空プレースホルダ（`emptyCatalog`）で contract を満たす。
 
 > Catalog 一覧の読み取りは `GET /catalogs`（`PK="CATALOG"` の Query で全件取得・
 > `ListCatalog` → `CatalogRepository.listAll`）で提供する。
-> Catalog / MarketRecord の編集（`POST` / `PUT` / `DELETE`）は実装済み（次々節参照）。
+> Catalog / MarketSale の編集（`POST` / `PUT` / `DELETE`）は実装済み（次々節参照）。
 
 ## 書き込み系の追加例（`POST /collection`）
 
@@ -203,20 +208,30 @@ Catalog である程度「型」が決まっているので、固有情報だけ
    管理し（`terraform/cognito.tf` の `aws_cognito_user_group.editor`）、ユーザーを入れると
    次回発行のトークンから `cognito:groups=editor` が載る。
 
-読み取り系（`GET /market` `GET /catalogs`）は業務認可を掛けず、ログイン済みなら誰でも閲覧可。
+読み取り系（`GET /market` `GET /market/summary` `GET /catalogs`）は業務認可を掛けず、
+ログイン済みなら誰でも閲覧可。
 
-### MarketRecord の書き込みモデル
+### MarketSale（成約ログ）と MarketSummary（相場サマリ）の2層
 
-保存は正規化済み（書誌は `catalogId` 参照）。入力は `catalogId` ＋ 出品固有
-（`seller` / `condition` / `history`）だけを受け取り、次をサーバが決める:
+マーケットは **成約1件1価格の取引ログ（`MarketSale`）** を append-only に貯め、
+**相場（現在価格・変化率・チャート系列）は catalog 単位で集計する読み取りモデル
+（`MarketSummary`）** として都度導出する（保存しない）。取引が疎な初版でも成約時点だけを
+正直に記録できる。設計の詳細は [market-sales-redesign.md](market-sales-redesign.md)。
 
-- `price` = `history` 末尾、`change` = `(末尾 - 先頭) / 先頭` …
-  `domain/market/deriveMarketPrice`（純粋関数）で導出する（入力に含めない）。
-- `id` = `mk-<uuid>`、`listedAt` = 生成時刻（新着ソート用。大きいほど新しい）。
-- `update` は `UpdateItem` で可変項目のみ置換して `listedAt` を保持し、`price`/`change` を
-  再導出（`condition` / `change` は DynamoDB 予約語なので名前プレースホルダで逃がす）。
+保存は正規化済み（書誌は `catalogId` 参照）。書き込み入力は `catalogId` ＋ 成約固有
+（`condition` / `price` / `soldAt` / `seller`）だけを受け取り、次をサーバが決める:
 
-応答は読み取り（`GET /market`）と同じく Catalog を join した `MarketRecord`。
+- `id` = `mk-<uuid>`、`listedAt` = 登録時刻（byNew の新着ソート用。成約日 `soldAt` とは別軸）。
+- `update` は `UpdateItem` で可変項目のみ置換して `listedAt` を保持
+  （`condition` は DynamoDB 予約語なので名前プレースホルダで逃がす）。
+
+`GET /market/summary` は成約ログを `catalogId` でグルーピングし、`domain/market/summarizeSales`
+（純粋関数）で `price`（= 月次擬似 `history` の末尾）/ `change` / `history[12]` / `sampleCount`
+/ `lastSoldAt` を導出する。成約が無い月は前方フィル、最初の成約より前はバックフィルして
+月次折れ線を成立させる。`DynamoMarketPriceRepository`（Collection の相場 join）も同じ集計を
+共有し `price` だけを取り出す。
+
+読み取り応答は Catalog を join した形（`GET /market`=`MarketSale`、`GET /market/summary`=`MarketSummary`）。
 `create` / `update` は `catalogId` の実在を検証し、不在なら **400**（`update` の対象 id
 不在は **404**）。存在制御は DynamoDB の `attribute_exists` / `attribute_not_exists` で行う
 （`ConditionalCheckFailedException` を 404/false に変換）。削除成功は本文なしの **204**。

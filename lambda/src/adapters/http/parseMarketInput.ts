@@ -1,11 +1,10 @@
 import type { MarketInput } from "../../application/ports/MarketRepository";
 import type { Condition } from "../../domain/collection/Condition";
 
-// POST /market・PUT /market/{id} のボディを検証して MarketInput に整える。
-// 必須は catalogId / condition / history（12 要素）。seller は未指定なら空文字。
-// price / change / listedAt は受け取らない（保存側で導出・採番する）。
+// POST /market・PUT /market/{id} のボディを検証して MarketInput（成約 1 件）に整える。
+// 必須は catalogId / condition / price / soldAt。seller は未指定なら空文字。
+// id / listedAt は受け取らない（保存側で採番する）。相場（history/change）は集計側で導出。
 const CONDITIONS: readonly Condition[] = ["S", "A", "B", "C"];
-const HISTORY_LENGTH = 12;
 
 export type ParseResult =
   | { ok: true; value: MarketInput }
@@ -14,6 +13,19 @@ export type ParseResult =
 const strOr = (v: unknown): string | null => {
   if (v === undefined || v === null) return "";
   return typeof v === "string" ? v : null;
+};
+
+// "YYYY-MM-DD" 形式かつ実在する暦日か（例: 2026-02-31 は弾く）。未来日は許容する。
+const isValidDate = (s: string): boolean => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= (daysInMonth[month - 1] ?? 31);
 };
 
 export const parseMarketInput = (body: unknown): ParseResult => {
@@ -32,30 +44,29 @@ export const parseMarketInput = (body: unknown): ParseResult => {
     };
   }
 
+  if (
+    typeof b.price !== "number" ||
+    !Number.isInteger(b.price) ||
+    b.price < 0
+  ) {
+    return { ok: false, error: "price must be a non-negative integer" };
+  }
+
+  if (typeof b.soldAt !== "string" || !isValidDate(b.soldAt)) {
+    return { ok: false, error: "soldAt must be a valid date in YYYY-MM-DD" };
+  }
+
   const seller = strOr(b.seller);
   if (seller === null) return { ok: false, error: "seller must be a string" };
-
-  if (!Array.isArray(b.history) || b.history.length !== HISTORY_LENGTH) {
-    return {
-      ok: false,
-      error: `history must be an array of exactly ${HISTORY_LENGTH} numbers`,
-    };
-  }
-  const history: number[] = [];
-  for (const n of b.history) {
-    if (typeof n !== "number" || !Number.isInteger(n) || n < 0) {
-      return { ok: false, error: "history must contain non-negative integers" };
-    }
-    history.push(n);
-  }
 
   return {
     ok: true,
     value: {
       catalogId: b.catalogId,
-      seller,
       condition: b.condition as Condition,
-      history,
+      price: b.price,
+      soldAt: b.soldAt,
+      seller,
     },
   };
 };
