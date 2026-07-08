@@ -231,7 +231,7 @@ Catalog 投入を参照。Catalog が無いと書誌・画像が空で返る）�
 | `gsiPk` | `"RECORD"` 固定（GSI で全件を 1 束にまとめる） |
 | `catalogId` | 参照する Catalog の id（実体は `PK="CATALOG"` / `SK="CATALOG#<id>"`） |
 | `seller` | 出品者 / ショップ名 |
-| `condition` | `S` / `A` / `B` / `C` |
+| `condition` | 鑑定記録（鑑定機関・グレード等の自由文字列。種類未確定のため enum 固定しない。空文字可） |
 | `history` | 価格推移（円）の配列。要素数 12・末尾が現在価格 |
 | `price` | 現在価格（円）。`history` の末尾と一致 |
 | `change` | 期間変化率 `(末尾 - 先頭) / 先頭`（例: `0.18`） |

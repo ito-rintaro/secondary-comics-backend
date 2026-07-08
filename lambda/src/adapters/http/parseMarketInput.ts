@@ -1,10 +1,9 @@
 import type { MarketInput } from "../../application/ports/MarketRepository";
-import type { Condition } from "../../domain/collection/Condition";
 
 // POST /market・PUT /market/{id} のボディを検証して MarketInput（成約 1 件）に整える。
-// 必須は catalogId / condition / price / soldAt。seller は未指定なら空文字。
+// 必須は catalogId / price / soldAt。condition（鑑定記録）と seller は未指定なら空文字。
+// condition は取り得る種類が未確定のため、任意の自由文字列を許容する（enum 検証はしない）。
 // id / listedAt は受け取らない（保存側で採番する）。相場（history/change）は集計側で導出。
-const CONDITIONS: readonly Condition[] = ["S", "A", "B", "C"];
 
 export type ParseResult =
   | { ok: true; value: MarketInput }
@@ -37,11 +36,10 @@ export const parseMarketInput = (body: unknown): ParseResult => {
   if (typeof b.catalogId !== "string" || b.catalogId.length === 0) {
     return { ok: false, error: "catalogId is required" };
   }
-  if (!CONDITIONS.includes(b.condition as Condition)) {
-    return {
-      ok: false,
-      error: `condition must be one of ${CONDITIONS.join("/")}`,
-    };
+
+  const condition = strOr(b.condition);
+  if (condition === null) {
+    return { ok: false, error: "condition must be a string" };
   }
 
   if (
@@ -63,7 +61,7 @@ export const parseMarketInput = (body: unknown): ParseResult => {
     ok: true,
     value: {
       catalogId: b.catalogId,
-      condition: b.condition as Condition,
+      condition,
       price: b.price,
       soldAt: b.soldAt,
       seller,
