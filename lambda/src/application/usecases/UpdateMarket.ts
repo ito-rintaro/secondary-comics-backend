@@ -1,17 +1,17 @@
-import type { MarketRecord } from "../../domain/market/MarketRecord";
+import type { MarketSale } from "../../domain/market/MarketSale";
 import type { MarketInput, MarketRepository } from "../ports/MarketRepository";
 import type { CatalogRepository } from "../ports/CatalogRepository";
 
-// 相場レコード更新の結果。
+// 成約レコード更新の結果。
 //   unknownCatalog … catalogId が実在しない（400）
 //   notFound       … 更新対象の id が存在しない（404）
 export type UpdateMarketResult =
-  | { ok: true; record: MarketRecord }
+  | { ok: true; record: MarketSale }
   | { ok: false; reason: "unknownCatalog" | "notFound" };
 
-// 既存 MarketRecord を更新するユースケース。
+// 既存 MarketSale（成約）を更新するユースケース。
 // catalogId の実在を検証してから可変項目を更新し、Catalog を join した結果を返す。
-// listedAt は保存側で保持され、price/change は history から再導出される。
+// listedAt（登録時刻）は保存側で保持される。
 export class UpdateMarket {
   constructor(
     private readonly market: MarketRepository,

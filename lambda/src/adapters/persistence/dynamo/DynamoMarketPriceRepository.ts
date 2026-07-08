@@ -1,24 +1,22 @@
-import {
-  QueryCommand,
-  type DynamoDBDocumentClient,
-} from "@aws-sdk/lib-dynamodb";
+import { type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { MarketPriceRepository } from "../../../application/ports/MarketPriceRepository";
-import { MARKET_GSI_PK } from "./marketRecordMapper";
+import { summarizeSales } from "../../../domain/market/summarizeSales";
+import {
+  queryAllSaleRows,
+  groupSalesByCatalog,
+  epochToYearMonth,
+} from "./queryMarketSales";
 
 // market-record テーブルから Catalog 単位の現在相場を引く MarketPriceRepository の実装。
-// 全レコードは gsiPk="RECORD" で 1 束のため byNew GSI を Query して走査し、
-// catalogId ごとに「最新出品（listedAt 最大）の price」を現在相場として採用する
-// （1 catalog に複数出品があり得るため。今のデータは 1:1）。
-interface PriceRow {
-  catalogId?: string;
-  price?: number;
-  listedAt?: number;
-}
-
+// Collection は market を保存せず、読み取り/作成時にここから相場を取得して合成する。
+// 全成約を取得 → catalogId でグルーピング → summarizeSales で集計し、その現在価格
+// （history 末尾）を採用する。相場サマリ（DynamoMarketSummaryRepository）と同じ集計骨格を
+// 共有し、price 部分だけを取り出す（重複ロジックを排除）。
 export class DynamoMarketPriceRepository implements MarketPriceRepository {
   constructor(
     private readonly ddb: DynamoDBDocumentClient,
     private readonly tableName: string,
+    private readonly now: () => number,
   ) {}
 
   async pricesByCatalog(catalogIds: string[]): Promise<Map<string, number>> {
@@ -26,29 +24,13 @@ export class DynamoMarketPriceRepository implements MarketPriceRepository {
     const result = new Map<string, number>();
     if (wanted.size === 0) return result;
 
-    const latest = new Map<string, number>(); // catalogId → 採用中の listedAt
-    let ExclusiveStartKey: Record<string, unknown> | undefined;
-    do {
-      const res = await this.ddb.send(
-        new QueryCommand({
-          TableName: this.tableName,
-          IndexName: "byNew",
-          KeyConditionExpression: "gsiPk = :pk",
-          ExpressionAttributeValues: { ":pk": MARKET_GSI_PK },
-          ExclusiveStartKey,
-        }),
-      );
-      for (const row of (res.Items ?? []) as PriceRow[]) {
-        const cid = row.catalogId;
-        if (!cid || !wanted.has(cid) || typeof row.price !== "number") continue;
-        const listedAt = row.listedAt ?? 0;
-        if (!latest.has(cid) || listedAt >= (latest.get(cid) as number)) {
-          latest.set(cid, listedAt);
-          result.set(cid, row.price);
-        }
-      }
-      ExclusiveStartKey = res.LastEvaluatedKey;
-    } while (ExclusiveStartKey);
+    const rows = await queryAllSaleRows(this.ddb, this.tableName);
+    const grouped = groupSalesByCatalog(rows);
+    const nowYm = epochToYearMonth(this.now());
+    for (const [catalogId, sales] of grouped) {
+      if (!wanted.has(catalogId)) continue;
+      result.set(catalogId, summarizeSales(sales, nowYm).price);
+    }
     return result;
   }
 }

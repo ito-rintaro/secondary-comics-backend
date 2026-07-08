@@ -10,10 +10,12 @@ import { DynamoCollectionRepository } from "./adapters/persistence/dynamo/Dynamo
 import { DynamoMarketRepository } from "./adapters/persistence/dynamo/DynamoMarketRepository";
 import { DynamoCatalogRepository } from "./adapters/persistence/dynamo/DynamoCatalogRepository";
 import { DynamoMarketPriceRepository } from "./adapters/persistence/dynamo/DynamoMarketPriceRepository";
+import { DynamoMarketSummaryRepository } from "./adapters/persistence/dynamo/DynamoMarketSummaryRepository";
 import { randomUUID } from "node:crypto";
 import { ListCollection } from "./application/usecases/ListCollection";
 import { CreateCollection } from "./application/usecases/CreateCollection";
 import { ListMarket } from "./application/usecases/ListMarket";
+import { ListMarketSummary } from "./application/usecases/ListMarketSummary";
 import { CreateMarket } from "./application/usecases/CreateMarket";
 import { UpdateMarket } from "./application/usecases/UpdateMarket";
 import { DeleteMarket } from "./application/usecases/DeleteMarket";
@@ -36,8 +38,12 @@ const env = loadEnv();
 const ddb = createDocumentClient();
 // Catalog マスタは app テーブルに同居。Collection / Market の書誌 join に使う。
 const catalogRepo = new DynamoCatalogRepository(ddb, env.appTableName);
-// 現在相場は market-record から導出する（Collection は market を保存しない）。
-const marketPriceRepo = new DynamoMarketPriceRepository(ddb, env.marketTableName);
+// 現在相場は market-record の成約ログから集計して導出する（Collection は market を保存しない）。
+const marketPriceRepo = new DynamoMarketPriceRepository(
+  ddb,
+  env.marketTableName,
+  () => Date.now(),
+);
 const collectionRepo = new DynamoCollectionRepository(
   ddb,
   env.appTableName,
@@ -64,8 +70,16 @@ const marketRepo = new DynamoMarketRepository(
   catalogRepo,
 );
 const listMarket = new ListMarket(marketRepo);
+// 相場サマリ: 成約ログを catalog 単位に集計する（相場一覧・チャートの供給源）。
+const marketSummaryRepo = new DynamoMarketSummaryRepository(
+  ddb,
+  env.marketTableName,
+  catalogRepo,
+  () => Date.now(),
+);
+const listMarketSummary = new ListMarketSummary(marketSummaryRepo);
 // 編集系: catalogId の実在検証(catalogRepo)を挟み、id/listedAt はここで採番する。
-// price/change は保存側で history から導出する（入力には含めない）。
+// 成約は 1 件 1 価格で保存し、相場の集計は読み取り側（summary）で行う。
 const createMarket = new CreateMarket(
   marketRepo,
   catalogRepo,
@@ -76,6 +90,7 @@ const updateMarket = new UpdateMarket(marketRepo, catalogRepo);
 const deleteMarket = new DeleteMarket(marketRepo);
 const marketController = new MarketController(
   listMarket,
+  listMarketSummary,
   createMarket,
   updateMarket,
   deleteMarket,

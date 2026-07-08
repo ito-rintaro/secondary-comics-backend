@@ -93,25 +93,25 @@ paths:
   /market:
     get:
       operationId: listMarket
-      summary: マーケット相場の一覧を取得
+      summary: マーケット成約ログの一覧を取得
       description: |
-        二次流通マーケットの相場レコードを配列で返す。
+        二次流通マーケットの成約レコード（1 件 1 価格）を配列で返す append-only な取引ログ。
         コレクションと異なりユーザー個別ではなく全ユーザー共通（グローバル）の
-        データで、sub による絞り込みは行わない。
-        検索・ソート（新着/値上がり等）はフロント側で行うため、
+        データで、sub による絞り込みは行わない。相場（現在価格・変化率・チャート系列）は
+        集計した GET /market/summary 側で取得する。並び順（新着等）はフロント側で行うため、
         サーバーは生のレコード配列のみを返す（クエリパラメータなし）。
       tags: [market]
       security:
         - cognito: []
       responses:
         '200':
-          description: マーケットレコードの配列（0 件なら空配列）
+          description: 成約レコード（MarketSale）の配列（0 件なら空配列）
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/MarketRecord'
+                  $ref: '#/components/schemas/MarketSale'
               examples:
                 sample:
                   $ref: '#/components/examples/MarketList'
@@ -124,11 +124,11 @@ paths:
 
     post:
       operationId: createMarket
-      summary: マーケット相場を 1 件追加（要 editor 権限）
+      summary: マーケット成約を 1 件追加（要 editor 権限）
       description: |
-        新規の MarketRecord を 1 件作成する。書誌は catalogId で既存の Catalog を
-        参照し、本文には出品固有の情報（seller/condition/history）だけを入れる。
-        price / change は history から導出し、id / listedAt はサーバが採番する。
+        新規の MarketSale（成約 1 件）を作成する。書誌は catalogId で既存の Catalog を
+        参照し、本文には成約固有の情報（condition/price/soldAt/seller）だけを入れる。
+        id / listedAt（登録時刻）はサーバが採番する。相場の集計は読み取り側で行う。
         Cognito の "editor" グループに所属するユーザーのみ実行可能（未所属は 403）。
       tags: [market]
       security:
@@ -141,13 +141,13 @@ paths:
               $ref: '#/components/schemas/NewMarketInput'
       responses:
         '201':
-          description: 作成された MarketRecord（Catalog を合成した形）
+          description: 作成された MarketSale（Catalog を合成した形）
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MarketRecord'
+                $ref: '#/components/schemas/MarketSale'
         '400':
-          description: 入力不正（catalogId 不在 / history が12要素でない など）
+          description: 入力不正（catalogId 不在 / price・soldAt が不正 など）
           content:
             application/json:
               schema:
@@ -165,13 +165,44 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /market/summary:
+    get:
+      operationId: listMarketSummary
+      summary: catalog 単位の相場サマリ一覧を取得
+      description: |
+        成約ログ（GET /market）を catalog 単位に集計した相場サマリを配列で返す。
+        現在価格 price・変化率 change・月次に畳んだ擬似系列 history[12] を導出しており、
+        相場一覧カードと価格チャートの供給源になる。成約が 1 件以上ある catalog のみ含む。
+        全ユーザー共通（グローバル）のデータで、クエリパラメータは取らない。
+      tags: [market]
+      security:
+        - cognito: []
+      responses:
+        '200':
+          description: 相場サマリ（MarketSummary）の配列（0 件なら空配列）
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketSummary'
+              examples:
+                sample:
+                  $ref: '#/components/examples/MarketSummaryList'
+        '401':
+          description: 未認証（トークンが無い／無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /market/{id}:
     put:
       operationId: updateMarket
-      summary: マーケット相場を更新（要 editor 権限）
+      summary: マーケット成約を更新（要 editor 権限）
       description: |
-        既存の MarketRecord を更新する。可変項目（catalogId/seller/condition/history）
-        を置き換え、price/change は history から再導出する。listedAt は保持される。
+        既存の MarketSale（成約）を更新する。可変項目（catalogId/condition/price/soldAt/seller）
+        を置き換える。listedAt（登録時刻）は保持される。
         "editor" グループ所属が必須（未所属は 403）。
       tags: [market]
       security:
@@ -180,7 +211,7 @@ paths:
         - name: id
           in: path
           required: true
-          description: 対象 MarketRecord の id
+          description: 対象 MarketSale の id
           schema:
             type: string
       requestBody:
@@ -191,13 +222,13 @@ paths:
               $ref: '#/components/schemas/NewMarketInput'
       responses:
         '200':
-          description: 更新後の MarketRecord
+          description: 更新後の MarketSale
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MarketRecord'
+                $ref: '#/components/schemas/MarketSale'
         '400':
-          description: 入力不正（catalogId 不在 / history が12要素でない など）
+          description: 入力不正（catalogId 不在 / price・soldAt が不正 など）
           content:
             application/json:
               schema:
@@ -215,7 +246,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: 指定 id の MarketRecord が存在しない
+          description: 指定 id の MarketSale が存在しない
           content:
             application/json:
               schema:
@@ -224,7 +255,7 @@ paths:
       operationId: deleteMarket
       summary: マーケット相場を削除（要 editor 権限）
       description: |
-        指定 id の MarketRecord を削除する。"editor" グループ所属が必須（未所属は 403）。
+        指定 id の MarketSale を削除する。"editor" グループ所属が必須（未所属は 403）。
       tags: [market]
       security:
         - cognito: []
@@ -232,7 +263,7 @@ paths:
         - name: id
           in: path
           required: true
-          description: 対象 MarketRecord の id
+          description: 対象 MarketSale の id
           schema:
             type: string
       responses:
@@ -251,7 +282,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: 指定 id の MarketRecord が存在しない
+          description: 指定 id の MarketSale が存在しない
           content:
             application/json:
               schema:
@@ -262,7 +293,7 @@ paths:
       operationId: listCatalogs
       summary: カタログ（書誌マスタ）の一覧を取得
       description: |
-        Collection / MarketRecord が catalogId で参照する書誌マスタ（Catalog）を
+        Collection / MarketSale が catalogId で参照する書誌マスタ（Catalog）を
         配列で返す。マーケット同様、全ユーザー共通（グローバル）のデータで、
         sub による絞り込みは行わない。全件が単一パーティション（PK="CATALOG"）に
         束ねられており、Query 1 回で取得する（クエリパラメータなし）。
@@ -389,7 +420,7 @@ paths:
       summary: カタログを削除（要 editor 権限）
       description: |
         指定 id の Catalog を削除する。"editor" グループ所属が必須（未所属は 403）。
-        参照している Collection / MarketRecord がある場合の整合はフロント運用で担保する。
+        参照している Collection / MarketSale がある場合の整合はフロント運用で担保する。
       tags: [catalog]
       security:
         - cognito: []
@@ -654,8 +685,9 @@ components:
           type: boolean
           description: 特装・サイン等の特別仕様かどうか
 
-    # マーケットの相場レコード 1 件。フロントの domain/market/MarketRecord.ts と一致させる。
-    MarketRecord:
+    # マーケットの成約レコード 1 件（1 件 1 価格の取引ログ）。
+    # フロントの domain/market/MarketSale.ts と一致させる。
+    MarketSale:
       type: object
       required:
         - id
@@ -663,76 +695,138 @@ components:
         - author
         - publisher
         - volume
-        - seller
-        - condition
         - flags
-        - history
-        - price
-        - change
-        - listedAt
         - imageUrl
+        - catalogId
+        - condition
+        - price
+        - soldAt
+        - seller
       properties:
         id:
           type: string
-          description: レコード識別子（システム生成）
-          example: mk0
+          description: レコード識別子（システム生成。mk-xxx）
+          example: mk-8f3c1e2a
         title:
           type: string
-          description: 作品名
+          description: 作品名（Catalog 由来）
           example: AKIRA 全6巻 初版帯付 美品セット
         author:
           type: string
-          description: 著者
+          description: 著者（Catalog 由来）
           example: 大友克洋
         publisher:
           type: string
-          description: 出版社 / レーベル
+          description: 出版社 / レーベル（Catalog 由来）
           example: 講談社
         volume:
           type: string
-          description: 巻数（"全6巻" "第1巻" 等の自由文字列）
+          description: 巻数（Catalog 由来。"全6巻" "第1巻" 等の自由文字列）
           example: 全6巻
-        seller:
-          type: string
-          description: 出品者 / ショップ名
-          example: コレクター田中
-        condition:
-          $ref: '#/components/schemas/Condition'
         flags:
           $ref: '#/components/schemas/ConditionFlags'
+        imageUrl:
+          type: string
+          description: |
+            画像の S3 オブジェクトキー（Catalog 由来。ファイル名のみ。例: "xxx.jpg"）。
+            実体は CloudFront 配下の images/ に置かれ、フロントが
+            CloudFront ドメイン + "/images/" を前置して表示する。空文字可。
+          example: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
+        catalogId:
+          type: string
+          description: 参照する Catalog の id
+          example: cat-001
+        condition:
+          $ref: '#/components/schemas/Condition'
+        price:
+          type: integer
+          minimum: 0
+          description: 成約価格（円）＝単一。
+          example: 35400
+        soldAt:
+          type: string
+          format: date
+          description: 成約日（"YYYY-MM-DD"）。集計・チャートの時間軸。
+          example: '2026-07-05'
+        seller:
+          type: string
+          description: 販売元 / ショップ名（空文字可）
+          example: コレクター田中
+
+    # catalog 単位の相場サマリ。成約ログ（MarketSale）を集計した読み取りモデル。
+    # フロントの相場一覧カード・価格チャートが消費する。price/change/history は導出値。
+    MarketSummary:
+      type: object
+      required:
+        - catalogId
+        - title
+        - author
+        - publisher
+        - volume
+        - flags
+        - imageUrl
+        - price
+        - change
+        - history
+        - sampleCount
+        - lastSoldAt
+      properties:
+        catalogId:
+          type: string
+          description: 集計単位＝参照する Catalog の id
+          example: cat-001
+        title:
+          type: string
+          example: AKIRA 全6巻 初版帯付 美品セット
+        author:
+          type: string
+          example: 大友克洋
+        publisher:
+          type: string
+          example: 講談社
+        volume:
+          type: string
+          example: 全6巻
+        flags:
+          $ref: '#/components/schemas/ConditionFlags'
+        imageUrl:
+          type: string
+          description: 画像の S3 オブジェクトキー（Catalog 由来。ファイル名のみ。空文字可）。
+          example: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
+        price:
+          type: integer
+          minimum: 0
+          description: 現在価格（円）＝ history 末尾（直近月バケット）。
+          example: 35400
+        change:
+          type: number
+          format: float
+          description: 期間変化率 (history 末尾 - 先頭) / 先頭。0.18 なら +18%。
+          example: 0.18
         history:
           type: array
-          description: 直近 12 ヶ月の価格推移（円）。要素数は 12。末尾が現在価格。
+          description: |
+            月次に畳んだ擬似価格系列（円）。要素数 12・末尾＝当月。
+            成約が無い月は直前月をキャリー（前方フィル）、最初の成約より前は
+            最初の非空値でバックフィルする（成約が疎でも折れ線を成立させるため）。
           items:
             type: integer
             minimum: 0
           minItems: 12
           maxItems: 12
           example: [30000, 30500, 31000, 31800, 32500, 33000, 33600, 34200, 34800, 35100, 35400, 35400]
-        price:
+        sampleCount:
           type: integer
           minimum: 0
-          description: 現在価格（円）。history の末尾と一致する。
-          example: 35400
-        change:
-          type: number
-          format: float
-          description: 期間変化率 (末尾 - 先頭) / 先頭。0.18 なら +18%。
-          example: 0.18
-        listedAt:
-          type: integer
-          format: int64
-          description: 新着ソート用の連番（大きいほど新しい）。
-          example: 0
-        imageUrl:
+          description: 集計に使った成約点数（相場の信頼度の目安）。
+          example: 7
+        lastSoldAt:
           type: string
-          description: |
-            画像の S3 オブジェクトキー（ファイル名のみ。例: "xxx.jpg"）。
-            実体は CloudFront 配下の images/ に置かれ、フロントが
-            CloudFront ドメイン + "/images/" を前置して表示する。空文字可。
-          example: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
+          format: date
+          description: 直近成約日（"YYYY-MM-DD"）。
+          example: '2026-07-05'
 
-    # 書誌マスタ（Catalog）1 件。Collection / MarketRecord が catalogId で参照する hub。
+    # 書誌マスタ（Catalog）1 件。Collection / MarketSale が catalogId で参照する hub。
     # フロントの domain/catalog/Catalog.ts と一致させる。
     Catalog:
       type: object
@@ -780,33 +874,34 @@ components:
             CloudFront ドメイン + "/images/" を前置して表示する。空文字可。
           example: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
 
-    # POST /market・PUT /market/{id} のリクエストボディ。
-    # 書誌は catalogId で参照し、出品固有情報だけを持つ。price / change は history から
-    # 導出、id / listedAt はサーバ採番のため含めない。
+    # POST /market・PUT /market/{id} のリクエストボディ（成約 1 件）。
+    # 書誌は catalogId で参照し、成約固有情報だけを持つ。
+    # id / listedAt はサーバ採番のため含めない。相場（history/change）は集計側で導出。
     NewMarketInput:
       type: object
-      required: [catalogId, condition, history]
+      required: [catalogId, condition, price, soldAt]
       properties:
         catalogId:
           type: string
           description: 参照する Catalog の id（実在必須。無ければ 400）
           example: cat-001
+        condition:
+          $ref: '#/components/schemas/Condition'
+        price:
+          type: integer
+          minimum: 0
+          description: 成約価格（円・0 以上の整数）
+          example: 35400
+        soldAt:
+          type: string
+          format: date
+          description: 成約日（"YYYY-MM-DD"。実在する暦日）
+          example: '2026-07-05'
         seller:
           type: string
           default: ''
-          description: 出品者 / ショップ名（既定 空文字）
+          description: 販売元 / ショップ名（既定 空文字）
           example: コレクター田中
-        condition:
-          $ref: '#/components/schemas/Condition'
-        history:
-          type: array
-          description: 直近12ヶ月の価格推移（円）。要素数ちょうど 12・各要素は 0 以上の整数。
-          items:
-            type: integer
-            minimum: 0
-          minItems: 12
-          maxItems: 12
-          example: [30000, 30500, 31000, 31800, 32500, 33000, 33600, 34200, 34800, 35100, 35400, 35400]
 
     # POST /catalogs・PUT /catalogs/{id} のリクエストボディ。
     # id はサーバ採番（cat-xxx）のため含めない。title のみ必須、他は既定値で補完する。
@@ -920,34 +1015,72 @@ components:
           updatedAt: 1718000004000
 
     MarketList:
-      summary: 2 件のマーケット相場例
+      summary: 3 件のマーケット成約ログ例（同一 catalog に複数成約が積み上がる）
       value:
-        - id: mk0
+        - id: mk-8f3c1e2a
           title: AKIRA 全6巻 初版帯付 美品セット
           author: 大友克洋
           publisher: 講談社
           volume: 全6巻
-          seller: コレクター田中
-          condition: A
           flags: { firstEd: true, obi: true, special: false }
-          history: [30000, 30500, 31000, 31800, 32500, 33000, 33600, 34200, 34800, 35100, 35400, 35400]
-          price: 35400
-          change: 0.18
-          listedAt: 0
           imageUrl: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
-        - id: mk1
+          catalogId: cat-001
+          condition: A
+          price: 35400
+          soldAt: '2026-07-05'
+          seller: コレクター田中
+        - id: mk-1b7d4c2e
+          title: AKIRA 全6巻 初版帯付 美品セット
+          author: 大友克洋
+          publisher: 講談社
+          volume: 全6巻
+          flags: { firstEd: true, obi: true, special: false }
+          imageUrl: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
+          catalogId: cat-001
+          condition: A
+          price: 33000
+          soldAt: '2026-04-18'
+          seller: まんだらけ
+        - id: mk-0b2c3d4e
           title: 幽☆遊☆白書 直筆サイン入り 第1巻
           author: 冨樫義博
           publisher: 集英社
           volume: 第1巻
-          seller: mangavault
-          condition: A
           flags: { firstEd: true, obi: true, special: true }
-          history: [52000, 53500, 55000, 57000, 59000, 60500, 62000, 63500, 65000, 66500, 67500, 67600]
+          imageUrl: 7c2a90b4de135_4f8e21a6c3b97d05ef6172a4b8c9e30d.jpg
+          catalogId: cat-005
+          condition: A
+          price: 67600
+          soldAt: '2026-06-20'
+          seller: mangavault
+
+    MarketSummaryList:
+      summary: 2 件の相場サマリ例（catalog 単位・成約ログの集計結果）
+      value:
+        - catalogId: cat-001
+          title: AKIRA 全6巻 初版帯付 美品セット
+          author: 大友克洋
+          publisher: 講談社
+          volume: 全6巻
+          flags: { firstEd: true, obi: true, special: false }
+          imageUrl: 619333a5ab646_991428d170c6d9fab761e61feeffbd6b.jpg
+          price: 35400
+          change: 0.18
+          history: [30000, 30500, 31000, 31800, 32500, 33000, 33000, 34200, 34800, 35100, 35400, 35400]
+          sampleCount: 6
+          lastSoldAt: '2026-07-05'
+        - catalogId: cat-005
+          title: 幽☆遊☆白書 直筆サイン入り 第1巻
+          author: 冨樫義博
+          publisher: 集英社
+          volume: 第1巻
+          flags: { firstEd: true, obi: true, special: true }
+          imageUrl: 7c2a90b4de135_4f8e21a6c3b97d05ef6172a4b8c9e30d.jpg
           price: 67600
           change: 0.3
-          listedAt: 1
-          imageUrl: 7c2a90b4de135_4f8e21a6c3b97d05ef6172a4b8c9e30d.jpg
+          history: [52000, 53500, 55000, 57000, 59000, 60500, 62000, 63500, 65000, 66500, 67500, 67600]
+          sampleCount: 3
+          lastSoldAt: '2026-06-20'
 
     CatalogList:
       summary: 2 件のカタログ例

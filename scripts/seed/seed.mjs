@@ -11,7 +11,11 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  BatchWriteCommand,
+  QueryCommand,
+} from "@aws-sdk/lib-dynamodb";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tfDir = path.resolve(here, "../../terraform");
@@ -86,30 +90,30 @@ books.forEach((b, i) => {
     },
   });
 
-  // generate a 12-month price series with mild wiggle around the base price.
-  let p = b.basePrice;
-  const history = months.map((_, idx) => {
+  // MarketSale: 成約 1 件 1 価格の取引ログ。取引が疎な様子を再現するため、
+  // 直近 12 ヶ月のうち一部の月にだけ成約を置く（毎月ではない）。末尾の月は
+  // 「現在価格」が安定するよう必ず成約を 1 件入れる。相場（現在価格・変化率・
+  // チャート系列）は保存せず、読み取り側（summarizeSales）で集計する。
+  let saleNo = 0;
+  months.forEach((ym, idx) => {
+    const isLatest = idx === months.length - 1;
+    // 隔月＋書籍ごとの位相ずれで疎にする（末尾月は必ず残す）。
+    if (!isLatest && (idx + i) % 2 !== 0) return;
     const delta = Math.round(Math.sin(idx * 0.9 + i) * 0.05 * b.basePrice);
-    p = Math.max(500, b.basePrice + delta);
-    return p;
-  });
-  const first = history[0];
-  const last = history[history.length - 1];
-  const change = Number(((last - first) / first).toFixed(4));
-  const listedAt = now - i * 86_400_000; // stagger by day for byNew sorting
-
-  // MarketRecord: 出品固有の価格情報。書誌は Catalog を catalogId で参照（正規化）。
-  // 価格推移は history(12要素) を行に直接埋め込む。gsiPk が byNew / byPrice GSI の束ね。
-  marketItems.push({
-    marketRecordId,
-    catalogId,
-    seller: b.seller,
-    condition: b.condition,
-    price: last,
-    change,
-    history,
-    listedAt,
-    gsiPk: "RECORD",
+    const price = Math.max(500, b.basePrice + delta);
+    const day = String(((idx * 7 + i * 3) % 27) + 1).padStart(2, "0");
+    saleNo += 1;
+    marketItems.push({
+      marketRecordId: `${marketRecordId}-${String(saleNo).padStart(2, "0")}`,
+      catalogId,
+      condition: b.condition,
+      price,
+      soldAt: `${ym}-${day}`, // "YYYY-MM-DD"
+      seller: b.seller,
+      // 登録時刻（byNew の新着ソート用）。成約日とは別軸。
+      listedAt: now - i * 86_400_000 + saleNo * 1000,
+      gsiPk: "RECORD",
+    });
   });
 });
 
@@ -119,8 +123,8 @@ books.forEach((b, i) => {
 const collectionItems = books.slice(0, 4).map((b, i) => {
   const suffix = String(i + 1).padStart(3, "0");
   const itemId = `col-${suffix}`;
-  // 取得価格は相場の 7 割で見積もる（market 自体は保存しない＝読み取り時に算出）。
-  const cost = Math.round(marketItems[i].price * 0.7);
+  // 取得価格は基準価格の 7 割で見積もる（market 自体は保存しない＝読み取り時に算出）。
+  const cost = Math.round(b.basePrice * 0.7);
   return {
     PK: `USER#${USER_ID}`,
     SK: `COLLECTION#${itemId}`,
@@ -142,10 +146,10 @@ const collectionItems = books.slice(0, 4).map((b, i) => {
   };
 });
 
-async function batchPut(table, items) {
-  for (let i = 0; i < items.length; i += 25) {
-    const chunk = items.slice(i, i + 25);
-    let request = { [table]: chunk.map((Item) => ({ PutRequest: { Item } })) };
+async function batchWrite(table, requests) {
+  for (let i = 0; i < requests.length; i += 25) {
+    const chunk = requests.slice(i, i + 25);
+    let request = { [table]: chunk };
     for (let attempt = 0; attempt < 5 && Object.keys(request).length; attempt++) {
       const res = await ddb.send(new BatchWriteCommand({ RequestItems: request }));
       request = res.UnprocessedItems ?? {};
@@ -154,10 +158,39 @@ async function batchPut(table, items) {
       }
     }
   }
+}
+
+async function batchPut(table, items) {
+  await batchWrite(table, items.map((Item) => ({ PutRequest: { Item } })));
   console.log(`  ${table}: ${items.length} items`);
 }
 
+// 旧スキーマ（history/change を埋め込んだ 1 catalog=1 行）の残骸を消してから入れ直す。
+// gsiPk="RECORD" の byNew GSI を走査して全成約行のキーを集め、まとめて削除する。
+async function clearMarketRecords(table) {
+  const keys = [];
+  let ExclusiveStartKey;
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: table,
+        IndexName: "byNew",
+        KeyConditionExpression: "gsiPk = :pk",
+        ExpressionAttributeValues: { ":pk": "RECORD" },
+        ExclusiveStartKey,
+      }),
+    );
+    for (const it of res.Items ?? []) {
+      keys.push({ marketRecordId: it.marketRecordId });
+    }
+    ExclusiveStartKey = res.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  await batchWrite(table, keys.map((Key) => ({ DeleteRequest: { Key } })));
+  console.log(`  ${table}: cleared ${keys.length} old rows`);
+}
+
 console.log("Seeding...");
+await clearMarketRecords(T.market);
 await batchPut(T.market, marketItems);
 // Catalog / Collection（USER# パーティション配下）は単一 app テーブルに同居。
 await batchPut(T.app, [...catalogItems, ...collectionItems]);
